@@ -8,6 +8,8 @@ export default defineConfig({
     alias: {
       'live-md-editor/highlight': path('./src/highlight/index.ts'),
       'live-md-editor': path('./src/index.ts'),
+      entities: path('./shims/entities.ts'),
+      'linkify-it': path('./shims/linkify-it.ts'),
     },
   },
   esbuild: { jsx: 'automatic' },
