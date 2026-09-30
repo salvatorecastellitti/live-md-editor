@@ -1,7 +1,7 @@
 # live-md-editor: Design Spec
 
 Date: 2026-09-30
-Status: Draft, awaiting review
+Status: Approved 2026-09-30; amended after prototyping (see section 15)
 
 ## 1. Goal
 
@@ -16,7 +16,8 @@ checkboxes). Input and output are plain markdown strings.
 - Usable from any framework (Vue, Svelte, Angular) or plain HTML via a vanilla API.
 - Markdown round-trips losslessly for every supported feature: parsing then
   serializing returns the same markdown.
-- Small bundle, enforced in CI. Smooth typing on a 10,000-line document.
+- Small bundle (core under 110 KB gzipped, see 5.3), enforced in CI. Smooth typing on a
+  10,000-line document.
 - Documentation and project hygiene good enough for public open-source release
   on day one.
 
@@ -55,19 +56,24 @@ const editor = createEditor({
   element: HTMLElement,            // required: where to mount
   value?: string,                  // initial markdown, default ''
   onChange?: (markdown: string) => void,  // fires only on content change
+  changeDelay?: number,            // ms to wait after the last edit before onChange; default 0
   placeholder?: string,
   editable?: boolean,              // default true; false = read-only renderer
   autofocus?: boolean,
+  ariaLabel?: string,
   extensions?: { radio?: boolean },     // opt-in syntax, default all false
   classNames?: { root?: string },
 })
 
+editor.view                                  // underlying ProseMirror view, for advanced use
+
 editor.getMarkdown(): string
 editor.setMarkdown(markdown: string): void   // replaces content, keeps history clean
 editor.setEditable(editable: boolean): void
+editor.isEditable(): boolean
 editor.focus(): void
 editor.isActive(name: ActiveName, attrs?: object): boolean
-editor.on(event: 'change' | 'selectionChange' | 'focus' | 'blur', fn): () => void  // returns unsubscribe
+editor.on(event: 'change' | 'selectionChange' | 'focus' | 'blur' | 'linkShortcut', fn): () => void  // returns unsubscribe
 editor.destroy(): void
 
 editor.commands.toggleBold()
@@ -81,6 +87,7 @@ editor.commands.toggleBlockquote()
 editor.commands.setCodeBlock(language?: string)
 editor.commands.insertHorizontalRule()
 editor.commands.insertTable(rows: number, cols: number)
+editor.commands.addRowAfter() / addColumnAfter() / deleteRow() / deleteColumn() / deleteTable()
 editor.commands.insertImage(src: string, alt?: string)
 editor.commands.undo() / redo()
 ```
@@ -104,8 +111,10 @@ import 'live-md-editor/style.css'
 />
 ```
 
-Controlled mode rule: when `value` changes from outside, the document is only
-rebuilt if `value !== editor.getMarkdown()`. This prevents cursor jumps while typing.
+Controlled mode rule: when `value` changes, the document is only rebuilt if
+`value` is neither the last markdown the editor reported through `onChange` nor
+equal to `editor.getMarkdown()`. This prevents cursor jumps while typing, and
+stops a late echo of an old value (possible with `changeDelay`) from wiping newer text.
 
 SSR safety: importing the package on the server does not touch `window` or
 `document`. The editor mounts in `useEffect`, and the server renders an empty
@@ -139,6 +148,13 @@ Opt-in extension:
 Raw HTML: preserved verbatim on serialize, displayed as inert text, never
 rendered as DOM.
 
+Front matter: a leading `---` YAML block is kept verbatim (hidden in the editor)
+and written back unchanged.
+
+Plain text that looks like HTML (`<b>`) or an entity (`&amp;`) is backslash
+escaped on save so it stays text. Link and image URLs have spaces encoded as
+`%20` and parentheses escaped so they survive a save.
+
 Serializer output is canonical and stable: bullets use `-`, emphasis uses `*`,
 strong uses `**`, code fences use three backticks. Round-trip tests assert
 `serialize(parse(md)) === md` for canonical input; non-canonical input is normalized
@@ -162,23 +178,26 @@ serialized only on content-changing transactions (`tr.docChanged`) and on
 
 | File | Responsibility |
 |---|---|
-| `src/schema.ts` | Nodes and marks for every supported feature |
-| `src/markdown/parser.ts` | Markdown to doc via `markdown-it` (tables, strikethrough) + own task and radio rules, through `prosemirror-markdown` |
-| `src/markdown/serializer.ts` | Doc to canonical markdown |
-| `src/markdown/radio.ts`, `task.ts` | markdown-it plugins for list item markers |
-| `src/inputRules.ts` | Live shortcuts: `# ` to `###### `, `> `, `- `, `1. `, `- [ ] `, `- ( ) `, triple backtick, `---`, `**x**`, `*x*`, `~~x~~`, `` `x` `` |
-| `src/keymap.ts` | Mod-B/I/K/E, Mod-Shift-X (strike), Enter/Backspace/Tab/Shift-Tab in lists, Mod-Z / Mod-Shift-Z |
-| `src/views/checkItem.ts` | Task and radio item node views with real `<input>` elements |
-| `src/views/codeBlock.ts` | Code block with language label |
-| `src/plugins/placeholder.ts` | Placeholder decoration when empty |
-| `src/plugins/links.ts` | Mod-click opens link in new tab (`rel="noopener noreferrer"`) |
-| `src/paste.ts` | Plain text that looks like markdown is parsed; HTML is reduced to the schema |
 | `src/url.ts` | URL allowlist (`http:`, `https:`, `mailto:`, relative) |
-| `src/commands.ts` | Public command set and `isActive` |
-| `src/editor.ts` | `createEditor`, event emitter, lifecycle |
+| `src/schema.ts` | Nodes and marks for every supported feature (typed node and mark names) |
+| `src/markdown/checkItems.ts` | markdown-it plugin for `[ ]`/`[x]` and `( )`/`(x)` list item markers |
+| `src/markdown/parser.ts` | Markdown (+ front matter) to doc via `markdown-it` through `prosemirror-markdown` |
+| `src/markdown/serializer.ts` | Doc to canonical markdown |
+| `src/commands/checkItem.ts` | Toggle a task item; select a radio item and clear its group |
+| `src/views/listItem.ts` | List item node view: real `<input>` for task and radio items |
+| `src/plugins/inputRules.ts` | Live shortcuts: `# ` to `###### `, `> `, `- `, `1. `, `[ ] `, `( ) `, triple backtick, `---`, `**x**`, `*x*`, `_x_`, `~~x~~`, `` `x` `` |
+| `src/plugins/keymap.ts` | Mod-B/I/E, Mod-Shift-X (strike), Mod-K (emits `linkShortcut`), Enter/Backspace/Tab/Shift-Tab, undo/redo |
+| `src/plugins/placeholder.ts` | Placeholder decoration when empty |
+| `src/plugins/links.ts` | Mod-click opens link in new tab (`noopener,noreferrer`) |
+| `src/commands/index.ts` | Public command set and `isActive` |
+| `src/editor.ts` | `createEditor`, events, change batching, paste of markdown text, lifecycle |
 | `src/index.ts` | Public exports only |
 | `src/react/index.tsx` | React wrapper |
 | `src/style.css` | Default theme |
+| `shims/entities.ts`, `shims/linkify-it.ts` | Build-time replacements that cut about 30 KB gzipped (see 5.3) |
+
+The code block language label is drawn by CSS from a `data-language` attribute,
+so it needs no node view.
 
 Each module has one job and is tested on its own.
 
@@ -187,13 +206,19 @@ Each module has one job and is tested on its own.
 Runtime: `prosemirror-model`, `prosemirror-state`, `prosemirror-view`,
 `prosemirror-transform`, `prosemirror-commands`, `prosemirror-keymap`,
 `prosemirror-history`, `prosemirror-inputrules`, `prosemirror-schema-list`,
-`prosemirror-tables`, `prosemirror-markdown`, `markdown-it`.
+`prosemirror-tables`, `prosemirror-gapcursor`, `prosemirror-dropcursor`.
+
+Bundled into our dist (not runtime dependencies): `markdown-it` 14 and
+`prosemirror-markdown`, built with two shims: markdown-it's 75 KB `entities`
+table is replaced by the browser's own entity decoding, and the unused
+`linkify-it` is replaced by a stub.
 
 Peer (optional): `react >= 18`, `react-dom >= 18`.
 
-The size budget is set after the first build measures the real number, then
-enforced by `size-limit` in CI. Target: core under 90 KB gzipped including
-dependencies.
+Measured on the prototype: 139 KB gzipped as-is, 108.7 KB with the shims
+(ProseMirror itself is about 70 KB of that; tables about 10 KB). The original
+90 KB target is not reachable without dropping features, so the budget is
+**core under 110 KB gzipped including dependencies**, enforced by `size-limit` in CI.
 
 ## 6. Behaviour
 
@@ -204,6 +229,14 @@ dependencies.
   sites or Google Docs is reduced to supported nodes and marks.
 - `editable: false` hides the caret, and checkboxes become non-interactive.
 - `setMarkdown` does not add an undo step.
+- Enter in a list item makes a new unchecked item. Backspace at the start of a
+  task or radio item removes its box first; at the start of a heading or code
+  block it turns the block into a paragraph.
+- Tab and Shift-Tab indent and outdent list items (keeping check state) and move
+  between table cells; Tab in the last cell adds a row. Enter does nothing
+  inside a table cell (markdown cells are one line).
+- Mod-K has no built-in UI (the library is headless); it emits `linkShortcut`.
+- With `changeDelay`, pending changes are flushed on blur and on `destroy`.
 
 ## 7. Security
 
@@ -234,7 +267,9 @@ variable. No `!important` in the default theme, so overrides are easy.
   commands, `isActive`, radio grouping, URL allowlist, controlled React behaviour.
 - **Browser tests** (Playwright on Chromium, Firefox, WebKit): typing
   shortcuts, checkbox clicks, paste, undo/redo, mobile viewport.
-- **Performance check:** 10,000-line document, measured keystroke latency.
+- **Performance check:** 10,000-line document, measured keystroke latency with
+  `changeDelay` set. Measured on the prototype: serializing 10,000 lines takes about
+  23 ms, which is why `changeDelay` exists.
 - CI on every pull request: typecheck, lint, unit, browser tests, size-limit.
 
 ## 11. Documentation
@@ -274,3 +309,14 @@ variable. No `!important` in the default theme, so overrides are easy.
 - Slash menu and optional toolbar package
 - Syntax highlighting in code blocks
 - Math, footnotes, mermaid diagrams
+
+## 15. Amendments after prototyping (2026-09-30)
+
+A throwaway prototype (72 passing tests) validated the design and changed these points:
+
+1. Size target raised from 90 KB to 110 KB gzipped, with two build shims (5.3).
+2. New option `changeDelay` for large documents (3.1, 6).
+3. New option `ariaLabel`, new event `linkShortcut`, new `isEditable()`, public `view`,
+   and table row/column commands (3.1).
+4. Front matter preserved; HTML lookalike text escaped; URLs with spaces encoded (4).
+5. Code block language label via CSS instead of a node view (5.2).
