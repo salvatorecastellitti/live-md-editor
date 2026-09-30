@@ -1,0 +1,43 @@
+/* Follow the VitePress color mode inside the demos. */
+.dark .lme {
+  --lme-text: #e6edf3;
+  --lme-muted: #9198a1;
+  --lme-placeholder: #7d8590;
+  --lme-accent: #4493f8;
+  --lme-border: #3d444d;
+  --lme-code-bg: #151b23;
+  --lme-quote-border: #3d444d;
+  color-scheme: dark;
+}
+
+.lme-demo {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+/* VitePress styles every .vp-doc element; keep them away from the editor. */
+.vp-doc .lme :where(h1, h2, h3, h4, h5, h6) {
+  margin: 1.4em 0 0.5em;
+  border-top: none;
+  padding-top: 0;
+  letter-spacing: normal;
+}
+
+.vp-doc .lme > :where(:first-child) {
+  margin-top: 0;
+}
+
+.vp-doc .lme :where(p) {
+  margin: 0 0 0.75em;
+  line-height: inherit;
+}
+
+.vp-doc .lme :where(ul, ol) {
+  margin: 0 0 0.75em;
+}
+
+.vp-doc .lme :where(li + li) {
+  margin-top: 0.2em;
+}
