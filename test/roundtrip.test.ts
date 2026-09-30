@@ -40,6 +40,8 @@ const canonical: Record<string, string> = {
   emptyFrontmatter: '---\n---\n\ntext',
   ruleIsNotFrontmatter: 'text\n\n---\n\nmore',
   urlWithSpace: '[a](https://x.com/a%20b_\\(c\\))',
+  listItemStartsWithFence: '- ```js\n  x\n  ```\n- b',
+  listItemStartsWithHeading: '- # Title\n- b',
 }
 
 describe('round trip', () => {
@@ -81,6 +83,19 @@ describe('normalisation', () => {
     const doc = createParser({ radio: false })('- (x) a')
     expect(serializeMarkdown(doc)).toBe('- (x) a')
   })
+})
+
+describe('list items that start with a block', () => {
+  for (const md of ['- ```js\n  x\n  ```\n- b', '- # Title\n- b']) {
+    it(`keeps the block inside the item: ${JSON.stringify(md)}`, () => {
+      const once = roundTrip(md)
+      expect(roundTrip(once)).toBe(once)
+      const list = parse(once).firstChild!
+      expect(list.type.name).toBe('bullet_list')
+      expect(list.childCount).toBe(2)
+      expect(list.attrs.tight).toBe(true)
+    })
+  }
 })
 
 describe('real-world corpus', () => {

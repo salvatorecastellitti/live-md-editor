@@ -14,11 +14,18 @@ export interface ParserOptions {
 // generators). Without this it would parse as a rule plus a heading.
 const FRONT_MATTER = /^---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/
 
+// markdown-it hides the paragraphs of tight lists. Only the list's own
+// paragraphs count: an item may start with a fence or a heading, which
+// is never hidden. A list without any paragraph renders the same either
+// way, so it is tight (the canonical form).
 function listIsTight(tokens: readonly Token[], index: number): boolean {
+  const level = tokens[index]!.level
   for (let i = index + 1; i < tokens.length; i++) {
-    if (tokens[i]!.type !== 'list_item_open') return tokens[i]!.hidden
+    const token = tokens[i]!
+    if (token.level === level && token.type.endsWith('_list_close')) break
+    if (token.type === 'paragraph_open' && token.level === level + 2) return token.hidden
   }
-  return false
+  return true
 }
 
 function cellAttrs(token: Token): { align: CellAlign } {

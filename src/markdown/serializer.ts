@@ -93,7 +93,14 @@ const serializer: MarkdownSerializer = new MarkdownSerializer(
       state.renderList(node, ' '.repeat(width + 2), (i) => `${start + i}. ${checkMarker(node.child(i))}`)
     },
     list_item(state, node) {
-      state.renderContent(node)
+      // An item that starts with a block other than a paragraph ("- # Title")
+      // parses with an empty first paragraph, because the schema requires
+      // one. Skip it so the block stays on the marker line and inside the item.
+      const first = node.firstChild!
+      const skip = node.childCount > 1 && first.type === schema.nodes.paragraph && first.content.size === 0
+      node.forEach((child, _offset, i) => {
+        if (!(skip && i === 0)) state.render(child, node, i)
+      })
     },
     table(state, node) {
       const aligns: CellAlign[] = []
