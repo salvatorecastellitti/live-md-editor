@@ -110,7 +110,7 @@ export const LiveMarkdownEditor = forwardRef<Editor | null, LiveMarkdownEditorPr
           current.text = text
         } else {
           // A new stream, or a regenerated answer that does not continue the old one.
-          current?.writer.end()
+          // setMarkdown detaches a running stream without reporting its text.
           editor.setMarkdown('')
           const writer = editor.stream()
           writer.write(text)

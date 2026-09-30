@@ -160,4 +160,38 @@ describe('LiveMarkdownEditor streaming', () => {
     expect(ref.current!.getMarkdown()).toBe('Corrected answer')
     expect(seen).not.toHaveBeenCalledWith('First answer')
   })
+
+  it('a restart does not report the old answer to a parent that mirrors onChange', () => {
+    const ref = createRef<Editor | null>()
+    const seen = vi.fn()
+    function App() {
+      const [md, setMd] = useState('Old answer')
+      const [streaming, setStreaming] = useState(true)
+      return (
+        <>
+          <LiveMarkdownEditor
+            ref={ref}
+            value={md}
+            streaming={streaming}
+            onChange={(v) => {
+              seen(v)
+              // Bounded: echoing a stale answer back would restart forever.
+              if (seen.mock.calls.length < 5) setMd(v)
+            }}
+          />
+          <button onClick={() => setMd('New')}>restart</button>
+          <button onClick={() => setStreaming(false)}>stop</button>
+        </>
+      )
+    }
+    const { getByText } = within(render(<App />).container)
+    act(() => {
+      getByText('restart').click()
+    })
+    act(() => {
+      getByText('stop').click()
+    })
+    expect(seen).not.toHaveBeenCalledWith('Old answer')
+    expect(ref.current!.getMarkdown()).toBe('New')
+  })
 })
