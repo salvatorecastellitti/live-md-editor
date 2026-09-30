@@ -1,15 +1,3 @@
-/* Follow the VitePress color mode inside the demos. */
-.dark .lme {
-  --lme-text: #e6edf3;
-  --lme-muted: #9198a1;
-  --lme-placeholder: #7d8590;
-  --lme-accent: #4493f8;
-  --lme-border: #3d444d;
-  --lme-code-bg: #151b23;
-  --lme-quote-border: #3d444d;
-  color-scheme: dark;
-}
-
 .lme-demo {
   border: 1px solid var(--vp-c-divider);
   border-radius: 8px;

@@ -9,7 +9,9 @@
  *   .lme { --lme-accent: #7c3aed; --lme-font: 'Inter', sans-serif; }
  *
  * Dark mode follows prefers-color-scheme. Force a theme by setting
- * data-theme="light" or data-theme="dark" on any ancestor.
+ * data-theme="light" or data-theme="dark" on any ancestor. The dark
+ * palette brings its own background (--lme-bg) and padding, so it stays
+ * readable on a light page; set `.lme { --lme-bg: transparent }` to drop it.
  */
 
 .lme {
@@ -17,6 +19,8 @@
   --lme-font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --lme-font-size: 1rem;
   --lme-line-height: 1.65;
+  --lme-bg: transparent;
+  --lme-padding: 0;
   --lme-text: #1f2328;
   --lme-muted: #59636e;
   --lme-placeholder: #6e7781;
@@ -43,6 +47,8 @@
 
 @media (prefers-color-scheme: dark) {
   .lme {
+    --lme-bg: #0d1117;
+    --lme-padding: 0.75em 1em;
     --lme-text: #e6edf3;
     --lme-muted: #9198a1;
     --lme-placeholder: #7d8590;
@@ -66,6 +72,8 @@
 }
 
 :where([data-theme='light']) .lme {
+  --lme-bg: transparent;
+  --lme-padding: 0;
   --lme-text: #1f2328;
   --lme-muted: #59636e;
   --lme-placeholder: #6e7781;
@@ -88,6 +96,8 @@
 }
 
 :where([data-theme='dark']) .lme {
+  --lme-bg: #0d1117;
+  --lme-padding: 0.75em 1em;
   --lme-text: #e6edf3;
   --lme-muted: #9198a1;
   --lme-placeholder: #7d8590;
@@ -121,6 +131,9 @@
   font-size: var(--lme-font-size);
   line-height: var(--lme-line-height);
   color: var(--lme-text);
+  background: var(--lme-bg);
+  padding: var(--lme-padding);
+  border-radius: var(--lme-radius);
   caret-color: var(--lme-accent);
   outline: none;
   min-height: 1lh;

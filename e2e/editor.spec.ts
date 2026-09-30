@@ -89,3 +89,30 @@ test('default theme styles headings, placeholder and code language', async ({ pa
     .evaluate((pre) => getComputedStyle(pre, '::before').content)
   expect(label).toBe('"ts"')
 })
+
+test.describe('dark mode', () => {
+  test.use({ colorScheme: 'dark' })
+
+  const styles = (page: Page) =>
+    editor(page).evaluate((el) => {
+      const style = getComputedStyle(el)
+      return { background: style.backgroundColor, color: style.color }
+    })
+
+  test('the dark palette brings its own background', async ({ page }) => {
+    await page.goto('/?value=text')
+    const { background, color } = await styles(page)
+    expect(background).not.toBe('rgba(0, 0, 0, 0)')
+    expect(color).toBe('rgb(230, 237, 243)')
+  })
+
+  test('data-theme="light" on <html> wins over a dark system preference', async ({ page }) => {
+    await page.goto('/?value=text')
+    await page.evaluate(() => {
+      document.documentElement.dataset.theme = 'light'
+    })
+    const { background, color } = await styles(page)
+    expect(color).toBe('rgb(31, 35, 40)')
+    expect(background).toBe('rgba(0, 0, 0, 0)')
+  })
+})
