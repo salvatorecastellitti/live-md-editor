@@ -2,15 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build and publish-ready `live-md-editor`: a framework-agnostic WYSIWYG markdown editor (vanilla core + React wrapper) with full GFM, task and radio lists, a default theme, tests, docs site, examples and release automation.
+**Goal:** Build and publish-ready `live-md-editor`: an AI-friendly, framework-agnostic WYSIWYG markdown editor (vanilla core + React wrapper) with full GFM, task and radio lists, live streaming of AI answers, code highlighting and copy buttons, a default theme, tests, docs site, examples and release automation.
 
-**Architecture:** ProseMirror is the editing engine. A typed schema maps every GFM construct to a node or mark; markdown-it (through prosemirror-markdown) parses markdown into that schema and a custom serializer writes canonical markdown back. Plugins add typing shortcuts, key bindings, a placeholder and link clicks; `createEditor()` wires them into one small public API, and `live-md-editor/react` wraps it.
+**Architecture:** ProseMirror is the editing engine. A typed schema maps every GFM construct to a node or mark; markdown-it (through prosemirror-markdown) parses markdown into that schema and a custom serializer writes canonical markdown back. Plugins add typing shortcuts, key bindings, a placeholder, link clicks, code highlighting and copy buttons. A streaming engine renders markdown that is still arriving (repairing unfinished syntax, freezing finished blocks, one undo step). `createEditor()` wires everything into one small public API; `live-md-editor/react` wraps it and `live-md-editor/highlight` is an optional add-on.
 
-**Tech Stack:** TypeScript 5.9 (strict), ProseMirror, markdown-it 14, prosemirror-markdown, tsup, Vitest 3 + jsdom, Playwright, React 19, VitePress + TypeDoc, Changesets, pnpm 10, GitHub Actions.
+**Tech Stack:** TypeScript 5.9 (strict), ProseMirror, markdown-it 14, prosemirror-markdown, lowlight 3 + highlight.js 11, tsup, Vitest 3 + jsdom, Playwright, React 19, VitePress + TypeDoc, Changesets, pnpm 10, GitHub Actions. The Next.js example uses `@anthropic-ai/sdk`.
 
-**Spec:** `docs/superpowers/specs/2026-09-30-live-md-editor-design.md` (read it before starting; section 15 lists amendments made after prototyping).
+**Spec:** `docs/superpowers/specs/2026-09-30-live-md-editor-design.md` (read it before starting; section 15 lists amendments made after prototyping, sections 16 and 17 cover AI streaming and code highlighting).
 
-**Provenance:** Every source and test file in this plan was run in a throwaway prototype before the plan was written: 153 unit tests, 22 browser tests (Chromium, WebKit, mobile, performance), strict typecheck, ESLint, Prettier, the package build, size-limit, publint, attw, the docs build and a production Next.js build all passed. If a step's result differs from the "Expected" line, stop and investigate before changing the code: it means something in the environment differs.
+**Provenance:** Every source and test file in this plan was run in a throwaway prototype before the plan was written: 242 unit tests, 36 browser tests (Chromium, WebKit, mobile, performance), strict typecheck, ESLint, Prettier, the package build, size-limit, publint, attw, the docs build and a production Next.js build (including its AI page, clicked through in a real browser) all passed. If a step's result differs from the "Expected" line, stop and investigate before changing the code: it means something in the environment differs.
 
 ## Global Constraints
 
@@ -19,8 +19,9 @@
 - Node 22 for development and CI; the published package declares `"engines": { "node": ">=18" }`.
 - pnpm 10 (`packageManager: pnpm@10.33.3`). Use `pnpm`, never `npm install`, in this repo.
 - TypeScript `~5.9.3` exactly (TS 6+/7 break tsup DTS, TypeDoc and typescript-eslint peer ranges).
-- Core bundle: under 110 KB gzipped including dependencies (enforced by size-limit). style.css under 3 KB gzipped.
-- Runtime dependencies are only `prosemirror-*` packages. `markdown-it` and `prosemirror-markdown` are devDependencies because tsup bundles them with the shims in `shims/`.
+- Budgets (gzipped, including dependencies, enforced by size-limit): core under 115 KB, React entry under 116 KB, highlight add-on first load under 15 KB, style.css under 3.5 KB.
+- Runtime dependencies: `prosemirror-*` packages, plus `lowlight` and `highlight.js`, which only the `live-md-editor/highlight` add-on imports. `markdown-it` and `prosemirror-markdown` are devDependencies because tsup bundles them with the shims in `shims/`.
+- Claude examples use `@anthropic-ai/sdk` with model `claude-opus-5-5` and `fallbacks: 'default'` (beta `server-side-fallback-2026-07-01`), exactly as shown in Tasks 19 and 20.
 - React is an optional peer dependency (`>=18`). Core code never imports React.
 - No `innerHTML` with user content. Links and images only allow `http:`, `https:`, `mailto:` and relative URLs (`isSafeUrl`).
 - Writing rule for everything you write (code comments, docs, commit messages, UI text): never use an em dash or an en dash, and never use `--` as a stand-in for one. Use a colon, comma, parentheses or a full stop.
@@ -31,10 +32,10 @@
 
 Inputs the spec implies but does not spell out, most likely to bite a real user first. Each has a test in the owning task.
 
-1. **Front matter at the top of a loaded `.md` file** must survive a save unchanged (it would otherwise parse as a rule plus a heading). Tests: Task 4 `stores front matter on the document`, Task 5 round trip `frontmatter`, Task 11 `keeps front matter through edits`.
-2. **HTML pasted from web pages or Google Docs** must be reduced to what markdown can hold, with `javascript:` links and scripts dropped. Tests: Task 3 `drops unsafe links and images from pasted HTML`, Task 11 `reduces pasted HTML...` and `pastes GitHub task list HTML`.
+1. **Front matter at the top of a loaded `.md` file** must survive a save unchanged (it would otherwise parse as a rule plus a heading). Tests: Task 4 `stores front matter on the document`, Task 5 round trip `frontmatter`, Task 13 `keeps front matter through edits`.
+2. **HTML pasted from web pages or Google Docs** must be reduced to what markdown can hold, with `javascript:` links and scripts dropped. Tests: Task 3 `drops unsafe links and images from pasted HTML`, Task 13 `reduces pasted HTML...`, `pastes GitHub task list HTML` and `pastes a heading in the middle of a paragraph as its own block`.
 3. **Link and image URLs with spaces or parentheses** must survive save and reload. Tests: Task 5 round trip `urlWithSpace`.
-4. **Tab / Shift-Tab on a checked task item** must keep the checkbox and its state. Test: Task 8 `Tab and Shift-Tab indent list items and keep their check state`.
+4. **An AI answer cut off at any character** (slow network, stop button, model cut-off) must never show raw syntax, and a finished stream must equal parsing the whole text at once. Tests: Task 11 `never lets raw syntax show at any cut point`, Task 13 `chunks of %i end identical to parsing at once` (chunk sizes 1 to 5000) and `abort keeps what arrived`.
 5. **Plain text that looks like HTML or an entity** (`<b>`, `&amp;`) must stay text after a save, and an empty or whitespace-only document must save as `""`. Tests: Task 5 `htmlLookalikes`, normalisation `'&copy; &lt;b&gt;'`, `''` and `'   \n\n  '`.
 
 ## File Structure
@@ -59,16 +60,23 @@ live-md-editor/
     plugins/keymap.ts        key bindings
     plugins/placeholder.ts   placeholder decoration
     plugins/links.ts         Mod-click opens links
-    clipboard.ts             pasted plain text is read as markdown
-    editor.ts                createEditor: wiring, events, change batching, lifecycle
-    react/index.tsx          <LiveMarkdownEditor/>
+    plugins/codeBlocks.ts    per-code-block decorations, rebuilt only where changed
+    plugins/highlight.ts     Highlighter type + plugin that applies its tokens
+    plugins/codeCopy.ts      copy button on code blocks
+    stream/heal.ts           healMarkdown: unfinished markdown rendered as if complete
+    stream/stable.ts         where the finished (frozen) part of a stream ends
+    stream/stream.ts         streaming engine (frames, frozen blocks, caret, one undo step)
+    clipboard.ts             pasted text read as markdown; the shared paste rule
+    editor.ts                createEditor: wiring, events, change batching, streaming, lifecycle
+    highlight/index.ts       live-md-editor/highlight add-on (lowlight, languages on demand)
+    react/index.tsx          <LiveMarkdownEditor/> (with the streaming prop)
     style.css                default theme
   shims/entities.ts, shims/linkify-it.ts   build-time replacements (about 30 KB gzipped saved)
   test/                      Vitest unit tests (jsdom), one file per module, plus helpers and fixtures
   e2e/                       Playwright tests and the test page they drive (e2e/fixture)
-  examples/nextjs, examples/vanilla        runnable examples (pnpm workspace packages)
+  examples/nextjs, examples/vanilla        runnable examples (pnpm workspace packages); nextjs has an AI page
   docs/                      VitePress site (guide, generated API, playground)
-  scripts/record-demo.ts     records docs/public/demo.gif
+  scripts/record-demo.ts     records docs/public/demo.gif and demo-stream.gif
   .github/                   CI, release, docs deploy, issue and PR templates
   .changeset/                Changesets config
 ```
@@ -84,7 +92,7 @@ live-md-editor/
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `pnpm test` (Vitest, jsdom, `test/setup.ts` loaded first), `pnpm typecheck`, `pnpm lint`. The alias `live-md-editor` resolves to `src/index.ts` in Vitest and TypeScript, so the React wrapper can import the core by its package name.
+- Produces: `pnpm test` (Vitest, jsdom, `test/setup.ts` loaded first), `pnpm typecheck`, `pnpm lint`. The aliases `live-md-editor` and `live-md-editor/highlight` resolve to `src/index.ts` and `src/highlight/index.ts` in Vitest and TypeScript, so the React wrapper and the add-on import the core by its package name. (The more specific alias must come first.)
 
 - [ ] **Step 1: Check the environment**
 
@@ -119,6 +127,10 @@ Scripts for tools installed in later tasks are included now so this file is writ
     "./react": {
       "import": { "types": "./dist/react.d.ts", "default": "./dist/react.js" },
       "require": { "types": "./dist/react.d.cts", "default": "./dist/react.cjs" }
+    },
+    "./highlight": {
+      "import": { "types": "./dist/highlight.d.ts", "default": "./dist/highlight.js" },
+      "require": { "types": "./dist/highlight.d.cts", "default": "./dist/highlight.cjs" }
     },
     "./style.css": "./dist/style.css",
     "./package.json": "./package.json"
@@ -195,7 +207,8 @@ Expected: installs without peer dependency errors.
     "types": ["node", "vite/client"],
     "jsx": "react-jsx",
     "paths": {
-      "live-md-editor": ["./src/index.ts"]
+      "live-md-editor": ["./src/index.ts"],
+      "live-md-editor/highlight": ["./src/highlight/index.ts"]
     }
   },
   "include": ["src", "test", "e2e", "shims", "*.config.ts"]
@@ -215,6 +228,7 @@ const path = (p: string) => fileURLToPath(new URL(p, import.meta.url))
 export default defineConfig({
   resolve: {
     alias: {
+      'live-md-editor/highlight': path('./src/highlight/index.ts'),
       'live-md-editor': path('./src/index.ts'),
     },
   },
@@ -855,7 +869,7 @@ git commit -m "feat: add document schema" -m "Co-Authored-By: Claude Opus 5.5 <n
 
 - [ ] **Step 1: Install markdown-it and prosemirror-markdown as devDependencies**
 
-They are bundled into `dist` by tsup (Task 15), so they are not runtime dependencies.
+They are bundled into `dist` by tsup (Task 18), so they are not runtime dependencies.
 
 Run: `pnpm add -D markdown-it@^14.3.2 @types/markdown-it@^14.2.0 prosemirror-markdown@^1.13.8`
 
@@ -980,6 +994,7 @@ In `vitest.config.ts`, replace
 
 ```ts
     alias: {
+      'live-md-editor/highlight': path('./src/highlight/index.ts'),
       'live-md-editor': path('./src/index.ts'),
     },
 ```
@@ -988,6 +1003,7 @@ with
 
 ```ts
     alias: {
+      'live-md-editor/highlight': path('./src/highlight/index.ts'),
       'live-md-editor': path('./src/index.ts'),
       entities: path('./shims/entities.ts'),
       'linkify-it': path('./shims/linkify-it.ts'),
@@ -1559,7 +1575,7 @@ git commit -m "feat: serialize documents to canonical markdown" -m "Co-Authored-
 - Produces:
   - `toggleCheckItem(pos: number): Command`: `pos` is the position right before the `list_item`. Task: flips `checked`. Radio: checks it and unchecks the other radios in the same run of consecutive radio items; returns false if it was already checked, or if `pos` is not a check item (including out of range).
   - `class ListItemView implements NodeView`: `new ListItemView(node, view, getPos)`. Task/radio items render `<li class="lme-check-item" data-check data-checked><input class="lme-check-input"><div class="lme-check-content">`; plain items render a bare `<li>`. The input is disabled when the view is not editable and is labelled by the item text.
-  - Test helpers: `mount()`, `createView(markdown, plugins?, { radio?, editable? })`, `markdownOf(view)`, `type(view, text)`, `press(view, key, { ctrl?, shift? })`, `cursorAfter(view, needle)`, `select(view, needle)`.
+  - Test helpers: `mount()`, `createView(markdown, plugins?, { radio?, editable? })`, `markdownOf(view)`, `type(view, text)`, `press(view, key, { ctrl?, shift? })`, `cursorAfter(view, needle)`, `select(view, needle)`, `paste(view, { text?, html?, types? })` (a paste event with clipboard data), `RAW_SYNTAX` (markdown syntax that must never be visible) and `visibleText(doc)` (the text a reader sees, without code).
 
 - [ ] **Step 1: Install the ProseMirror state, view and history packages**
 
@@ -1571,6 +1587,7 @@ Run: `pnpm add prosemirror-state@^1.4.4 prosemirror-view@^1.42.6 prosemirror-his
 
 ```ts
 import { history } from 'prosemirror-history'
+import type { Node } from 'prosemirror-model'
 import { EditorState, TextSelection, type Plugin } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { createParser } from '../src/markdown/parser'
@@ -1651,6 +1668,33 @@ export function select(view: EditorView, needle: string): void {
   cursorAfter(view, needle)
   const to = view.state.selection.from
   view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, to - needle.length, to)))
+}
+
+/** Markdown syntax that should never be visible as text in a rendered document. */
+export const RAW_SYNTAX = /\*\*|~~|`|\]\(|!\[|\|\s*-/
+
+/** The text a reader sees, leaving out code (where any character is legitimate). */
+export function visibleText(doc: Node): string {
+  let text = ''
+  doc.descendants((node) => {
+    if (node.type.spec.code) return false
+    if (node.isText && !node.marks.some((mark) => mark.type.spec.code)) text += node.text
+    return true
+  })
+  return text
+}
+
+/** Dispatches a paste event carrying the given clipboard data, like a real browser paste. */
+export function paste(view: EditorView, data: { text?: string; html?: string; types?: string[] }): void {
+  const values: Record<string, string> = { 'text/plain': data.text ?? '', 'text/html': data.html ?? '' }
+  const event = new Event('paste', { bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'clipboardData', {
+    value: {
+      types: data.types ?? Object.keys(values).filter((type) => values[type]),
+      getData: (type: string) => values[type] ?? '',
+    },
+  })
+  view.dom.dispatchEvent(event)
 }
 ```
 
@@ -2984,34 +3028,863 @@ git commit -m "feat: placeholder and link click plugins" -m "Co-Authored-By: Cla
 
 ---
 
-### Task 11: createEditor and the public entry point
+### Task 11: Repairing unfinished markdown (for streaming)
 
 **Files:**
-- Create: `src/clipboard.ts`, `src/editor.ts`, `src/index.ts`
-- Test: `test/editor.test.ts`
+- Create: `src/stream/heal.ts`, `src/stream/stable.ts`
+- Test: `test/heal.test.ts`, `test/stable.test.ts`
 
 **Interfaces:**
-- Consumes: everything from Tasks 2 to 10.
+- Consumes: `createParser` (Task 4); `RAW_SYNTAX`, `visibleText` (Task 6 helpers).
+- Produces:
+  - `healMarkdown(markdown: string): string`: renders text that is still arriving the way it will look once complete. Closes an open code fence; closes open emphasis, strikethrough and inline code (or drops the opener when nothing follows it yet); shows only the label of a half-written link; hides a half-written image or HTML tag; hides a table header until its delimiter row has as many columns. Only the last block is touched.
+  - `stableLength(text: string): number`: length of the start of `text` whose blocks can no longer change (ends at the start of the last complete line that follows a blank line and starts a fresh block). 0 when nothing can be frozen.
+
+- [ ] **Step 1: Write the failing tests**
+
+`test/heal.test.ts`:
+
+````ts
+import { describe, expect, it } from 'vitest'
+import { createParser } from '../src/markdown/parser'
+import { healMarkdown } from '../src/stream/heal'
+import { RAW_SYNTAX, visibleText } from './helpers'
+
+describe('healMarkdown', () => {
+  it.each([
+    ['Some **bol', 'Some **bol**'],
+    ['Some *ital', 'Some *ital*'],
+    ['Some ~~stri', 'Some ~~stri~~'],
+    ['Some `cod', 'Some `cod`'],
+    ['***both', '***both***'],
+    ['**bold** and *it', '**bold** and *it*'],
+    ['Some **', 'Some '],
+    ['Some ** ', 'Some ** '],
+    ['Some *', 'Some '],
+    ['text `', 'text '],
+    ['snake_case_na', 'snake_case_na'],
+    ['2 * 3 = 6', '2 * 3 = 6'],
+    ['- item', '- item'],
+    ['* item', '* item'],
+    ['* item **bo', '* item **bo**'],
+    ['`a*b` and **c', '`a*b` and **c**'],
+    ['escaped \\*star', 'escaped \\*star'],
+    ['see [the docs](https://ex', 'see the docs'],
+    ['see [the docs]', 'see the docs'],
+    ['see [the do', 'see the do'],
+    ['look ![a cat](https://x', 'look '],
+    ['look ![a c', 'look '],
+    ['- [ ]', '- [ ]'],
+    ['- [', '- ['],
+    ['- [x] done', '- [x] done'],
+    ['text <di', 'text '],
+    ['```ts\nconst a = 1', '```ts\nconst a = 1\n```'],
+    ['```ts\nconst a = 1\n', '```ts\nconst a = 1\n```'],
+    ['```\ncode **not bold', '```\ncode **not bold\n```'],
+    ['~~~\ncode', '~~~\ncode\n~~~'],
+    ['```\ndone\n```\n\nafter **x', '```\ndone\n```\n\nafter **x**'],
+    ['para\n\n``', 'para\n\n'],
+    ['para\n\n| a | b |', 'para'],
+    ['para\n\n| a | b |\n| --', 'para'],
+    ['| a | b |\n| --- | --', '| a | b |\n| --- | --'],
+    ['| a | b |\n| --- | --- |\n| 1 |', '| a | b |\n| --- | --- |\n| 1 |'],
+    ['**open\n\nnext para', '**open\n\nnext para'],
+  ])('%j renders as %j', (input, output) => {
+    expect(healMarkdown(input)).toBe(output)
+  })
+
+  it('never lets raw syntax show at any cut point of a realistic answer', () => {
+    const answer = [
+      '## Setting up **auth**',
+      '',
+      'Install the package with `npm install auth-kit`, then read [the guide](https://example.com/guide).',
+      '',
+      '- [x] Create an *API key*',
+      '- [ ] Add it to `.env`',
+      '',
+      '```ts',
+      "import { auth } from 'auth-kit'",
+      'const user = await auth()',
+      '```',
+      '',
+      '| Option | Default |',
+      '| --- | --- |',
+      '| `ttl` | 3600 |',
+      '',
+      '> **Tip:** rotate keys ~~yearly~~ monthly.',
+    ].join('\n')
+    const parse = createParser({ radio: false })
+    for (let cut = 1; cut <= answer.length; cut++) {
+      const doc = parse(healMarkdown(answer.slice(0, cut)))
+      expect(visibleText(doc), `cut at ${cut}`).not.toMatch(RAW_SYNTAX)
+    }
+  })
+})
+````
+
+`test/stable.test.ts`:
+
+````ts
+import { describe, expect, it } from 'vitest'
+import { stableLength } from '../src/stream/stable'
+
+describe('stableLength', () => {
+  it.each([
+    ['one paragraph still growing', 0],
+    ['para\n\nnext', 0],
+    ['para\n\nnext\n', 6],
+    ['para\n\nnext\nmore', 6],
+    ['# Title\n\ntext\n\n', 9],
+    ['- a\n\n- b\n', 0],
+    ['- a\n\n  indented\n', 0],
+    ['> quote\n\n> more\n', 0],
+    ['para\n\n[ref]: https://x.com\n', 0],
+    ['```\ncode\n\nstill code\n', 0],
+    ['```\ncode\n```\n\nafter\n', 14],
+  ])('%j -> %i', (text, length) => {
+    expect(stableLength(text)).toBe(length)
+  })
+})
+````
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `pnpm test test/heal.test.ts test/stable.test.ts`
+Expected: FAIL with `Failed to resolve import "../src/stream/heal"` and `"../src/stream/stable"`.
+
+- [ ] **Step 3: Implement `src/stream/heal.ts`**
+
+````ts
+// Repairs the end of a markdown document that is still being written
+// (for example by an AI model, token by token) so it renders the way it
+// will look once finished, instead of flashing raw syntax:
+//
+//   "Some **bol"          -> "Some **bol**"
+//   "```ts\nconst a"      -> "```ts\nconst a\n```"
+//   "see [the docs](htt"  -> "see the docs"
+//   "| a | b |"           -> ""   (a table header without its delimiter row yet)
+//
+// Only the last block can be unfinished, so only the last block is touched.
+
+const FENCE = /^ {0,3}(`{3,}|~{3,})/
+const LIST_MARKER = /^\s*(?:[-*+]|\d+[.)])\s+$/
+
+interface OpenFence {
+  marker: string
+}
+
+/** Finds a code fence that is still open at the end of `lines`. */
+function openFence(lines: string[]): OpenFence | null {
+  let open: OpenFence | null = null
+  for (const line of lines) {
+    const match = FENCE.exec(line)
+    if (!match) continue
+    const run = match[1]!
+    if (!open) {
+      // Backtick fences cannot have backticks in their info string.
+      if (run[0] === '`' && line.slice(match[0].length).includes('`')) continue
+      open = { marker: run }
+    } else if (
+      run[0] === open.marker[0] &&
+      run.length >= open.marker.length &&
+      !line.slice(match[0].length).trim()
+    ) {
+      open = null
+    }
+  }
+  return open
+}
+
+/** Index where the last block starts: after the last blank line outside a code fence. */
+function lastBlockStart(lines: string[]): number {
+  let start = 0
+  let fence: string | null = null
+  lines.forEach((line, i) => {
+    const match = FENCE.exec(line)
+    if (match) {
+      if (!fence) fence = match[1]!
+      else if (match[1]![0] === fence[0] && match[1]!.length >= fence.length) fence = null
+      return
+    }
+    if (!fence && !line.trim()) start = i + 1
+  })
+  return start
+}
+
+function cells(row: string): string[] {
+  return row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|')
+}
+
+/** A table whose header is there but whose delimiter row is not complete yet. */
+function isTableHeaderOnly(block: string[]): boolean {
+  const header = block[0]?.trim() ?? ''
+  if (!header.startsWith('|')) return false
+  const delimiter = block[1]
+  if (!delimiter) return true
+  const parts = cells(delimiter)
+  return parts.length < cells(header).length || !parts.every((part) => /^\s*:?-+:?\s*$/.test(part))
+}
+
+/** Removes a half-written link, image or HTML tag at the very end of the text. */
+function trimIncompleteTail(text: string): string {
+  // ![alt](src... or ![alt... : hide the image until it is complete.
+  let match = /!\[[^\]\n]*(?:\]\([^)\n]*)?$/.exec(text)
+  if (match) return text.slice(0, match.index)
+  // [label](url... : show just the label for now.
+  match = /\[([^\]\n]*)\]\([^)\n]*$/.exec(text)
+  if (match) return text.slice(0, match.index) + match[1]
+  // [label or [label] : show the label, unless it is a task marker such as "- [ ]".
+  match = /\[([^\]\n]*)\]?$/.exec(text)
+  if (match) {
+    const before = text.slice(0, match.index)
+    const lineStart = before.slice(before.lastIndexOf('\n') + 1)
+    const isTaskMarker = LIST_MARKER.test(lineStart) && /^\[[ xX]?\]?$/.test(match[0])
+    if (!isTaskMarker) return before + match[1]
+  }
+  // A tag that has not been closed yet, such as "<di".
+  match = /<\/?[a-zA-Z][^<>\n]*$/.exec(text)
+  if (match) return text.slice(0, match.index)
+  return text
+}
+
+interface Delimiter {
+  char: string
+  length: number
+  index: number
+}
+
+/** Closes emphasis, strikethrough and inline code left open at the end of `text`. */
+function closeInline(text: string): string {
+  const stack: Delimiter[] = []
+  let i = 0
+  let inCode: Delimiter | null = null
+  while (i < text.length) {
+    const char = text[i]!
+    if (char === '\\' && !inCode) {
+      i += 2
+      continue
+    }
+    if (char !== '*' && char !== '_' && char !== '~' && char !== '`') {
+      i++
+      continue
+    }
+    let end = i
+    while (text[end] === char) end++
+    const length = end - i
+    if (char === '`') {
+      if (!inCode) inCode = { char, length, index: i }
+      else if (inCode.length === length) inCode = null
+      i = end
+      continue
+    }
+    if (inCode) {
+      i = end
+      continue
+    }
+    const before = text[i - 1] ?? ' '
+    // At the very end the next character has not arrived yet: treat the run
+    // as an opener, so it is hidden instead of flashing as raw syntax.
+    const after = text[end] ?? ''
+    const lineStart = text.slice(text.lastIndexOf('\n', i - 1) + 1, i)
+    const isBullet = /^\s*$/.test(lineStart) && after === ' ' && length === 1 && char !== '~'
+    const leftFlanking = after === '' || !/\s/.test(after)
+    const rightFlanking = !/\s/.test(before)
+    const top = stack.at(-1)
+    if (top && top.char === char && top.length === length && rightFlanking) {
+      stack.pop()
+    } else if (
+      !isBullet &&
+      leftFlanking &&
+      !(char === '_' && /\w/.test(before)) &&
+      !(char === '~' && length !== 2)
+    ) {
+      stack.push({ char, length, index: i })
+    }
+    i = end
+  }
+  let result = text
+  if (inCode) result = closeOrDrop(result, inCode)
+  for (const open of stack.reverse()) result = closeOrDrop(result, open)
+  return result
+}
+
+/** Appends the closing delimiter, or drops the opener if nothing follows it yet. */
+function closeOrDrop(text: string, open: Delimiter): string {
+  const content = text.slice(open.index + open.length)
+  if (!content.trim()) return text.slice(0, open.index) + content
+  return text.trimEnd() + open.char.repeat(open.length) + text.slice(text.trimEnd().length)
+}
+
+/**
+ * Makes unfinished markdown render as it will once complete. Use it on text
+ * that is still streaming in; do not use it on finished documents.
+ */
+export function healMarkdown(markdown: string): string {
+  const lines = markdown.split('\n')
+  const fence = openFence(lines)
+  if (fence) {
+    const last = lines.at(-1)!
+    // A fence that has only started ("``") is left alone; an open one is closed.
+    return `${markdown}${last === '' ? '' : '\n'}${fence.marker}`
+  }
+  const start = lastBlockStart(lines)
+  const head = lines.slice(0, start)
+  let block = lines.slice(start)
+  if (isTableHeaderOnly(block)) return head.join('\n').trimEnd()
+  // A fence opener still being typed ("``") would flash as inline code.
+  if (/^ {0,3}`{1,2}$/.test(block.at(-1) ?? '')) block = block.slice(0, -1)
+  let text = block.join('\n')
+  text = trimIncompleteTail(text)
+  text = closeInline(text)
+  return [...head, text].join('\n')
+}
+````
+
+- [ ] **Step 4: Implement `src/stream/stable.ts`**
+
+```ts
+const FENCE = /^ {0,3}(`{3,}|~{3,})/
+
+/**
+ * A line that starts a new top-level block which cannot change the blocks
+ * before it: not indented (no list or code continuation), not a list item
+ * (it could turn the list above into a loose list), not a quote, table row
+ * or link reference definition.
+ */
+function startsFreshBlock(line: string): boolean {
+  return (
+    line.trim() !== '' &&
+    !/^\s/.test(line) &&
+    !/^(?:[-*+]|\d+[.)])(?:\s|$)/.test(line) &&
+    !/^[>|]/.test(line) &&
+    !/^\[[^\]]*\]:/.test(line)
+  )
+}
+
+/**
+ * Length of the start of `text` whose blocks are final: they will render
+ * the same however the text continues. It ends at the start of the last
+ * complete line that follows a blank line and starts a fresh block.
+ * Returns 0 when nothing can be frozen yet.
+ */
+export function stableLength(text: string): number {
+  const lines = text.split('\n')
+  let offset = 0
+  let stable = 0
+  let fence: string | null = null
+  let previousBlank = false
+  // The last line may still be growing, so it never marks a boundary.
+  for (let i = 0; i < lines.length - 1; i++) {
+    const line = lines[i]!
+    const match = FENCE.exec(line)
+    if (!fence && previousBlank && startsFreshBlock(line)) stable = offset
+    if (match) {
+      if (!fence) fence = match[1]!
+      else if (match[1]![0] === fence[0] && match[1]!.length >= fence.length) fence = null
+    }
+    previousBlank = !fence && line.trim() === ''
+    offset += line.length + 1
+  }
+  return stable
+}
+```
+
+- [ ] **Step 5: Run them to verify they pass**
+
+Run: `pnpm test test/heal.test.ts test/stable.test.ts && pnpm typecheck`
+Expected: 49 tests pass (38 + 11). The cut-point test parses every prefix of a realistic answer; if it fails it prints `cut at N`: that prefix is the input to debug.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/stream/heal.ts src/stream/stable.ts test/heal.test.ts test/stable.test.ts
+git commit -m "feat: repair unfinished markdown for streaming" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 12: Code block decorations: highlighting hook and copy button
+
+**Files:**
+- Create: `src/plugins/codeBlocks.ts`, `src/plugins/highlight.ts`, `src/plugins/codeCopy.ts`
+- Test: `test/codeBlocks.test.ts`
+
+**Interfaces:**
+- Consumes: test helpers (Task 6), `markdownInputRules` (Task 7).
+- Produces:
+  - `codeBlockPlugin(key, decorate, onView?)`: a plugin keeping decorations on every code block, rebuilding only blocks a transaction touched; meta `REFRESH` rebuilds all.
+  - `interface HighlightToken { from: number; to: number; className: string }` (offsets into the code).
+  - `type Highlighter = (code: string, language: string) => HighlightToken[] | null | Promise<HighlightToken[] | null>`
+  - `highlightPlugin(highlighter: Highlighter): Plugin`: colours blocks that have a language; caches up to 200 results; applies async results with one refresh; leaves code plain on failure.
+  - `codeCopy(): Plugin`: a `button.lme-copy` widget (aria-label `Copy code`, then `Copied` for 1.5 s) in every code block; copies the block's text.
+
+- [ ] **Step 1: Write the failing test**
+
+`test/codeBlocks.test.ts`:
+
+````ts
+import type { Plugin } from 'prosemirror-state'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { codeCopy } from '../src/plugins/codeCopy'
+import { highlightPlugin, type Highlighter } from '../src/plugins/highlight'
+import { markdownInputRules } from '../src/plugins/inputRules'
+import { createView, cursorAfter, markdownOf, type } from './helpers'
+
+interface Options {
+  highlight?: Highlighter
+  copyButton?: boolean
+  editable?: boolean
+}
+
+/** A view with the code block plugins switched on the way createEditor does it. */
+const make = (value: string, options: Options = {}) => {
+  const plugins: Plugin[] = [markdownInputRules({ radio: false })]
+  if (options.highlight) plugins.push(highlightPlugin(options.highlight))
+  if (options.copyButton ?? true) plugins.push(codeCopy())
+  const view = createView(value, plugins, { editable: options.editable })
+  return { view, getMarkdown: () => markdownOf(view) }
+}
+
+/** Marks every "let" as a keyword. */
+const letHighlighter: Highlighter = (code) =>
+  [...code.matchAll(/\blet\b/g)].map((match) => ({
+    from: match.index,
+    to: match.index + 3,
+    className: 'hljs-keyword',
+  }))
+
+const tick = () => new Promise((resolve) => setTimeout(resolve))
+
+describe('highlight option', () => {
+  it('colours code blocks with a language without changing the markdown', () => {
+    const editor = make('```js\nlet a = let\n```', { highlight: letHighlighter })
+    const keywords = editor.view.dom.querySelectorAll('pre .hljs-keyword')
+    expect([...keywords].map((span) => span.textContent)).toEqual(['let', 'let'])
+    expect(editor.getMarkdown()).toBe('```js\nlet a = let\n```')
+  })
+
+  it('leaves code without a language plain and never calls the highlighter for it', () => {
+    const highlighter = vi.fn(letHighlighter)
+    const editor = make('```\nlet a\n```', { highlight: highlighter })
+    expect(editor.view.dom.querySelector('.hljs-keyword')).toBeNull()
+    expect(highlighter).not.toHaveBeenCalled()
+  })
+
+  it('re-colours only the code block that changed', () => {
+    const highlighter = vi.fn(letHighlighter)
+    const editor = make('```js\nlet a\n```\n\n```js\nlet b\n```', { highlight: highlighter })
+    expect(highlighter).toHaveBeenCalledTimes(2)
+    cursorAfter(editor.view, 'let a')
+    type(editor.view, ' = let')
+    expect(highlighter).toHaveBeenCalledTimes(2 + ' = let'.length)
+    expect(highlighter.mock.calls.every(([code], i) => i < 2 || code.startsWith('let a'))).toBe(true)
+    expect(editor.view.dom.querySelectorAll('.hljs-keyword')).toHaveLength(3)
+  })
+
+  it('applies results that arrive later, asking once per code', async () => {
+    const highlighter = vi.fn((code: string, language: string) =>
+      Promise.resolve(letHighlighter(code, language)),
+    )
+    const editor = make('```js\nlet a\n```', { highlight: highlighter })
+    expect(editor.view.dom.querySelector('.hljs-keyword')).toBeNull()
+    editor.view.dispatch(editor.view.state.tr.setMeta('unrelated', true))
+    await tick()
+    expect(editor.view.dom.querySelector('.hljs-keyword')?.textContent).toBe('let')
+    expect(highlighter).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the code plain when the highlighter fails', async () => {
+    const editor = make('```js\nlet a\n```', { highlight: () => Promise.reject(new Error('no grammar')) })
+    await tick()
+    expect(editor.view.dom.querySelector('.hljs-keyword')).toBeNull()
+    expect(editor.getMarkdown()).toBe('```js\nlet a\n```')
+  })
+})
+
+describe('copy button', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  const mockClipboard = () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    return writeText
+  }
+
+  it('is on every code block by default and is not part of the markdown', () => {
+    const editor = make('```ts\na\n```\n\ntext\n\n```\nb\n```')
+    const buttons = editor.view.dom.querySelectorAll('pre button.lme-copy')
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0]!.getAttribute('aria-label')).toBe('Copy code')
+    expect(editor.getMarkdown()).toBe('```ts\na\n```\n\ntext\n\n```\nb\n```')
+  })
+
+  it('copies exactly the code and confirms', async () => {
+    const writeText = mockClipboard()
+    const editor = make('```ts\nconst a = 1\nconst b = 2\n```')
+    const button = editor.view.dom.querySelector<HTMLButtonElement>('button.lme-copy')!
+    button.click()
+    await tick()
+    expect(writeText).toHaveBeenCalledWith('const a = 1\nconst b = 2')
+    expect(button.dataset.copied).toBe('true')
+    expect(button.getAttribute('aria-label')).toBe('Copied')
+  })
+
+  it('works in read-only mode', async () => {
+    const writeText = mockClipboard()
+    const editor = make('```\nx\n```', { editable: false })
+    editor.view.dom.querySelector<HTMLButtonElement>('button.lme-copy')!.click()
+    await tick()
+    expect(writeText).toHaveBeenCalledWith('x')
+  })
+
+  it('can be turned off', () => {
+    const editor = make('```\nx\n```', { copyButton: false })
+    expect(editor.view.dom.querySelector('button.lme-copy')).toBeNull()
+  })
+
+  it('appears on code blocks created while editing', () => {
+    const editor = make('')
+    type(editor.view, '```js ')
+    expect(editor.view.dom.querySelector('button.lme-copy')).not.toBeNull()
+  })
+})
+````
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `pnpm test test/codeBlocks.test.ts`
+Expected: FAIL with `Failed to resolve import "../src/plugins/codeCopy"`.
+
+- [ ] **Step 3: Implement the shared code block plugin**
+
+`src/plugins/codeBlocks.ts`:
+
+```ts
+import type { Node } from 'prosemirror-model'
+import { Plugin, type PluginKey, type Transaction } from 'prosemirror-state'
+import { DecorationSet, type Decoration, type EditorView } from 'prosemirror-view'
+
+/** Meta value that makes a code block plugin rebuild all its decorations. */
+export const REFRESH = 'refresh'
+
+/** Ranges of `tr.doc` that the transaction changed. */
+function changedRanges(tr: Transaction): { from: number; to: number }[] {
+  const ranges: { from: number; to: number }[] = []
+  tr.mapping.maps.forEach((map, index) => {
+    const after = tr.mapping.slice(index + 1)
+    map.forEach((_oldStart, _oldEnd, newStart, newEnd) => {
+      ranges.push({ from: after.map(newStart, -1), to: after.map(newEnd, 1) })
+    })
+  })
+  return ranges
+}
+
+function build(doc: Node, decorate: (node: Node, pos: number) => Decoration[]): DecorationSet {
+  const decorations: Decoration[] = []
+  doc.descendants((node, pos) => {
+    if (node.type.name !== 'code_block') return true
+    decorations.push(...decorate(node, pos))
+    return false
+  })
+  return DecorationSet.create(doc, decorations)
+}
+
+/**
+ * A plugin that keeps decorations on every code block, rebuilding only the
+ * blocks a transaction touched (so large documents stay fast).
+ */
+export function codeBlockPlugin(
+  key: PluginKey<DecorationSet>,
+  decorate: (node: Node, pos: number) => Decoration[],
+  onView?: (view: EditorView | null) => void,
+): Plugin<DecorationSet> {
+  return new Plugin<DecorationSet>({
+    key,
+    state: {
+      init: (_config, state) => build(state.doc, decorate),
+      apply(tr, set) {
+        if (tr.getMeta(key) === REFRESH) return build(tr.doc, decorate)
+        if (!tr.docChanged) return set
+        let next = set.map(tr.mapping, tr.doc)
+        const seen = new Set<number>()
+        for (const { from, to } of changedRanges(tr)) {
+          tr.doc.nodesBetween(Math.max(0, from - 1), Math.min(tr.doc.content.size, to + 1), (node, pos) => {
+            if (node.type.name !== 'code_block') return true
+            if (!seen.has(pos)) {
+              seen.add(pos)
+              next = next.remove(next.find(pos, pos + node.nodeSize)).add(tr.doc, decorate(node, pos))
+            }
+            return false
+          })
+        }
+        return next
+      },
+    },
+    view(view) {
+      onView?.(view)
+      return { destroy: () => onView?.(null) }
+    },
+    props: {
+      decorations: (state) => key.getState(state),
+    },
+  })
+}
+```
+
+- [ ] **Step 4: Implement the highlighting hook**
+
+`src/plugins/highlight.ts`:
+
+```ts
+import type { Node } from 'prosemirror-model'
+import { PluginKey, type Plugin } from 'prosemirror-state'
+import { Decoration, type DecorationSet, type EditorView } from 'prosemirror-view'
+import { codeBlockPlugin, REFRESH } from './codeBlocks'
+
+/** A coloured range inside a code block, as character offsets into its code. */
+export interface HighlightToken {
+  from: number
+  to: number
+  /** Class names for the range, for example `hljs-keyword`. */
+  className: string
+}
+
+/**
+ * Colours code. Receives the code and its language (as written after the
+ * opening fence) and returns token ranges, `null` for "leave it plain", or a
+ * promise of either (for example while a language loads).
+ */
+export type Highlighter = (
+  code: string,
+  language: string,
+) => HighlightToken[] | null | Promise<HighlightToken[] | null>
+
+const key = new PluginKey<DecorationSet>('lme-highlight')
+const CACHE_SIZE = 200
+
+/** Colours code blocks that have a language, using `highlighter`. Results are cached. */
+export function highlightPlugin(highlighter: Highlighter): Plugin<DecorationSet> {
+  const cache = new Map<string, HighlightToken[] | null>()
+  const pending = new Set<string>()
+  let view: EditorView | null = null
+
+  const store = (id: string, tokens: HighlightToken[] | null): void => {
+    cache.set(id, tokens)
+    if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!)
+  }
+
+  const tokensFor = (code: string, language: string): HighlightToken[] | null => {
+    const id = `${language}\u0000${code}`
+    if (cache.has(id)) return cache.get(id)!
+    if (pending.has(id)) return null
+    const result = highlighter(code, language)
+    if (!(result instanceof Promise)) {
+      store(id, result)
+      return result
+    }
+    pending.add(id)
+    result
+      .then(
+        (tokens) => store(id, tokens),
+        () => store(id, null),
+      )
+      .finally(() => {
+        pending.delete(id)
+        view?.dispatch(view.state.tr.setMeta(key, REFRESH))
+      })
+    return null
+  }
+
+  const decorate = (node: Node, pos: number): Decoration[] => {
+    const language = node.attrs.language as string
+    if (!language || !node.textContent) return []
+    const size = node.content.size
+    return (tokensFor(node.textContent, language) ?? [])
+      .filter((token) => token.from < token.to && token.to <= size)
+      .map((token) => Decoration.inline(pos + 1 + token.from, pos + 1 + token.to, { class: token.className }))
+  }
+
+  return codeBlockPlugin(key, decorate, (current) => {
+    view = current
+  })
+}
+```
+
+- [ ] **Step 5: Implement the copy button**
+
+The icons are built with `createElementNS`, so no `innerHTML` is used anywhere.
+
+`src/plugins/codeCopy.ts`:
+
+```ts
+import type { Node } from 'prosemirror-model'
+import { PluginKey, type Plugin } from 'prosemirror-state'
+import { Decoration, type DecorationSet, type EditorView } from 'prosemirror-view'
+import { codeBlockPlugin } from './codeBlocks'
+
+const key = new PluginKey<DecorationSet>('lme-copy')
+const SVG = 'http://www.w3.org/2000/svg'
+const COPIED_FOR = 1500
+
+// Icon paths (24 x 24): two overlapping sheets, and a check mark.
+const COPY_ICON = ['M9 9h11v11H9z', 'M5 15H4V4h11v1']
+const CHECK_ICON = ['M5 12l5 5L20 7']
+
+function icon(paths: string[]): SVGSVGElement {
+  const svg = document.createElementNS(SVG, 'svg')
+  svg.setAttribute('viewBox', '0 0 24 24')
+  svg.setAttribute('aria-hidden', 'true')
+  for (const d of paths) {
+    const path = document.createElementNS(SVG, 'path')
+    path.setAttribute('d', d)
+    svg.append(path)
+  }
+  return svg
+}
+
+/** Copies text, falling back to a hidden textarea where the Clipboard API is unavailable (plain http). */
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text)
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.append(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  textarea.remove()
+}
+
+function copyButton(view: EditorView, getPos: () => number | undefined): HTMLButtonElement {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'lme-copy'
+  button.contentEditable = 'false'
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const show = (copied: boolean) => {
+    const label = copied ? 'Copied' : 'Copy code'
+    button.setAttribute('aria-label', label)
+    button.title = label
+    button.dataset.copied = String(copied)
+    button.replaceChildren(icon(copied ? CHECK_ICON : COPY_ICON))
+  }
+  show(false)
+  // Keep the editor selection where it is.
+  button.addEventListener('mousedown', (event) => event.preventDefault())
+  button.addEventListener('click', () => {
+    const pos = getPos()
+    const block = pos === undefined ? null : view.state.doc.resolve(pos).parent
+    if (block?.type.name !== 'code_block') return
+    void copyText(block.textContent).then(() => {
+      show(true)
+      clearTimeout(timer)
+      timer = setTimeout(() => show(false), COPIED_FOR)
+    })
+  })
+  return button
+}
+
+/** Adds a copy button to the corner of every code block. */
+export function codeCopy(): Plugin<DecorationSet> {
+  return codeBlockPlugin(key, (_node: Node, pos: number) => [
+    Decoration.widget(pos + 1, copyButton, {
+      side: -1,
+      key: 'lme-copy',
+      ignoreSelection: true,
+      stopEvent: () => true,
+    }),
+  ])
+}
+```
+
+- [ ] **Step 6: Run it to verify it passes**
+
+Run: `pnpm test test/codeBlocks.test.ts && pnpm typecheck`
+Expected: 10 tests pass; no type errors.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/plugins/codeBlocks.ts src/plugins/highlight.ts src/plugins/codeCopy.ts test/codeBlocks.test.ts
+git commit -m "feat: code highlighting hook and copy button" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 13: createEditor, streaming and the public entry point
+
+**Files:**
+- Create: `src/clipboard.ts`, `src/stream/stream.ts`, `src/editor.ts`, `src/index.ts`
+- Create: `test/fixtures/answer.md`
+- Test: `test/editor.test.ts`, `test/stream.test.ts`
+
+**Interfaces:**
+- Consumes: everything from Tasks 2 to 12.
 - Produces (the public API, exported from `src/index.ts`):
   - `createEditor(options: EditorOptions): Editor`
-  - `interface EditorOptions { element; value?; onChange?; changeDelay?; placeholder?; editable?; autofocus?; ariaLabel?; extensions?: { radio? }; classNames?: { root? } }`
-  - `interface Editor { commands; view; getMarkdown(); setMarkdown(md); setEditable(b); isEditable(); focus(); isActive(name, attrs?); on(event, handler): () => void; destroy() }`
-  - `interface EditorEvents { change(markdown); selectionChange(); focus(); blur(); linkShortcut() }`
-  - Re-exports: types `Commands`, `ActiveName`; function `isSafeUrl`.
-  - `createClipboardTextParser(parse)`: pasted plain text is parsed as markdown; a single-paragraph paste keeps its leading and trailing spaces.
+  - `interface EditorOptions { element; value?; onChange?; changeDelay?; placeholder?; editable?; autofocus?; ariaLabel?; extensions?: { radio? }; highlight?: Highlighter; copyButton?: boolean; classNames?: { root? } }`
+  - `interface Editor { commands; view; getMarkdown(); setMarkdown(md); setEditable(b); isEditable(); focus(); isActive(name, attrs?); stream(options?): StreamWriter; streamFrom(source, options?): Promise<string>; isStreaming(); on(event, handler): () => void; destroy() }`
+  - `interface EditorEvents { change(markdown); selectionChange(); focus(); blur(); linkShortcut(); streamStart(); streamEnd(markdown) }`
+  - `type TextSource = AsyncIterable<string | Uint8Array> | ReadableStream<string | Uint8Array>`
+  - `interface StreamOptions { at?: 'end' | 'cursor'; autoScroll?: boolean }`; `interface StreamWriter { write(chunk); flush(); end(): string; abort(): string; readonly done: boolean }`
+  - Re-exports: types `Commands`, `ActiveName`, `Highlighter`, `HighlightToken`; functions `isSafeUrl`, `healMarkdown`.
+  - `markdownSlice(doc)` and `createClipboardTextParser(parse)` (internal): the paste rule used by paste and by cursor streams. Only a paragraph at either edge merges into the surrounding text; spaces at the edges of the pasted text are kept.
 
 - [ ] **Step 1: Install the cursor plugins**
 
 Run: `pnpm add prosemirror-dropcursor@^1.8.4 prosemirror-gapcursor@^1.4.1`
 
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 2: Write the answer fixture**
+
+A realistic AI answer: headings, marks, a numbered list containing a fenced code block, tasks, a table, a quote. `test/fixtures/answer.md`:
+
+````markdown
+## Setting up **auth**
+
+Install the package with `npm install auth-kit`, then read [the guide](https://example.com/guide).
+
+1. Create an _API key_ in the dashboard.
+2. Add it to `.env`:
+
+   ```bash
+   AUTH_KEY=sk_live_123
+   ```
+
+3. Restart the server.
+
+- [x] Keys created
+- [ ] Keys rotated
+
+```ts
+import { auth } from 'auth-kit'
+
+const user = await auth()
+console.log(user.name)
+```
+
+| Option    | Default | Notes          |
+| --------- | ------- | -------------- |
+| `ttl`     | 3600    | seconds        |
+| `retries` | 3       | ~~5~~ since v2 |
+
+> **Tip:** rotate keys every month.
+>
+> See the _security_ page.
+
+That is all. Questions? Open an issue.
+````
+
+- [ ] **Step 3: Write the failing tests**
 
 `test/editor.test.ts`:
 
 ````ts
 import { describe, expect, it, vi } from 'vitest'
 import { createEditor, type EditorOptions } from '../src'
-import { cursorAfter, mount, press, select, type } from './helpers'
+import { cursorAfter, mount, paste, press, select, type } from './helpers'
 
 const make = (value = '', options: Partial<EditorOptions> = {}) =>
   createEditor({ element: mount(), value, ...options })
@@ -3139,6 +4012,29 @@ describe('createEditor', () => {
     expect(editor.getMarkdown()).toBe('# Title\n\n- [ ] task')
   })
 
+  it('pastes a heading in the middle of a paragraph as its own block', () => {
+    const editor = make('ab')
+    cursorAfter(editor.view, 'a')
+    paste(editor.view, { text: '## Title' })
+    expect(editor.getMarkdown()).toBe('a\n\n## Title\n\nb')
+  })
+
+  it('reads markdown copied from VS Code as markdown, not as its styled HTML', () => {
+    const editor = make('')
+    paste(editor.view, {
+      text: '# From VS Code',
+      html: '<div style="font-family: Menlo"><span># From VS Code</span></div>',
+      types: ['text/plain', 'text/html', 'vscode-editor-data'],
+    })
+    expect(editor.getMarkdown()).toBe('# From VS Code')
+  })
+
+  it('prefers the HTML of rich pastes from other apps', () => {
+    const editor = make('')
+    paste(editor.view, { text: 'Title', html: '<h2>Title</h2>' })
+    expect(editor.getMarkdown()).toBe('## Title')
+  })
+
   it('pastes into a code block as raw text', () => {
     const editor = make('```\ncode\n```')
     cursorAfter(editor.view, 'code')
@@ -3177,6 +4073,14 @@ describe('createEditor', () => {
     ).not.toBeNull()
   })
 
+  it('adds copy buttons by default and highlights code when given a highlighter', () => {
+    const highlight = (code: string) => [{ from: 0, to: code.indexOf(' '), className: 'hljs-keyword' }]
+    const editor = make('```js\nlet a\n```', { highlight })
+    expect(editor.view.dom.querySelector('pre button.lme-copy')).not.toBeNull()
+    expect(editor.view.dom.querySelector('pre .hljs-keyword')?.textContent).toBe('let')
+    expect(make('```\nx\n```', { copyButton: false }).view.dom.querySelector('.lme-copy')).toBeNull()
+  })
+
   it('destroy removes its DOM and leaves the host element alone', () => {
     const element = mount()
     element.innerHTML = '<span>existing</span>'
@@ -3188,12 +4092,214 @@ describe('createEditor', () => {
 })
 ````
 
-- [ ] **Step 3: Run it to verify it fails**
+`test/stream.test.ts`:
 
-Run: `pnpm test test/editor.test.ts`
+```ts
+import { describe, expect, it, vi } from 'vitest'
+import { createEditor, type EditorOptions } from '../src'
+import { createParser } from '../src/markdown/parser'
+import { serializeMarkdown } from '../src/markdown/serializer'
+import answer from './fixtures/answer.md?raw'
+import { cursorAfter, mount, RAW_SYNTAX, select, visibleText } from './helpers'
+
+const make = (value = '', options: Partial<EditorOptions> = {}) =>
+  createEditor({ element: mount(), value, ...options })
+const canonical = (markdown: string) => serializeMarkdown(createParser({ radio: false })(markdown))
+
+/** Writes `text` in pieces of `size` characters, rendering after each piece. */
+function feed(
+  writer: { write(c: string): void; flush(): void },
+  text: string,
+  size: number,
+  check?: () => void,
+) {
+  for (let i = 0; i < text.length; i += size) {
+    writer.write(text.slice(i, i + size))
+    writer.flush()
+    check?.()
+  }
+}
+
+describe('streaming at the end', () => {
+  it.each([1, 2, 3, 7, 16, 61, 5000])(
+    'chunks of %i end identical to parsing at once, never showing raw syntax',
+    (size) => {
+      const editor = make()
+      const writer = editor.stream()
+      feed(writer, answer, size, () => {
+        expect(visibleText(editor.view.state.doc)).not.toMatch(RAW_SYNTAX)
+      })
+      expect(writer.end()).toBe(canonical(answer))
+      expect(editor.view.state.doc.eq(createParser({ radio: false })(answer))).toBe(true)
+    },
+  )
+
+  it('appends after existing content and keeps it untouched', () => {
+    const editor = make('# Chat')
+    const writer = editor.stream()
+    writer.write('Hello **there**')
+    expect(writer.end()).toBe('# Chat\n\nHello **there**')
+  })
+
+  it('is read-only while streaming and reports start and end', () => {
+    const onChange = vi.fn()
+    const started = vi.fn()
+    const ended = vi.fn()
+    const editor = make('', { onChange })
+    editor.on('streamStart', started)
+    editor.on('streamEnd', ended)
+    const writer = editor.stream()
+    expect(started).toHaveBeenCalledOnce()
+    expect(editor.isStreaming()).toBe(true)
+    expect(editor.view.editable).toBe(false)
+    expect(editor.view.dom.classList.contains('lme-streaming')).toBe(true)
+    feed(writer, 'one two three', 4)
+    expect(editor.view.dom.querySelector('.lme-stream-caret')).not.toBeNull()
+    expect(onChange).not.toHaveBeenCalled()
+    writer.end()
+    expect(onChange).toHaveBeenCalledOnce()
+    expect(onChange).toHaveBeenCalledWith('one two three')
+    expect(ended).toHaveBeenCalledWith('one two three')
+    expect(editor.isStreaming()).toBe(false)
+    expect(editor.view.editable).toBe(true)
+    expect(editor.view.dom.classList.contains('lme-streaming')).toBe(false)
+    expect(editor.view.dom.querySelector('.lme-stream-caret')).toBeNull()
+  })
+
+  it('undoes the whole stream in one step', () => {
+    const editor = make('# Chat')
+    const writer = editor.stream()
+    feed(writer, answer, 9)
+    writer.end()
+    expect(editor.commands.undo()).toBe(true)
+    expect(editor.getMarkdown()).toBe('# Chat')
+    expect(editor.commands.redo()).toBe(true)
+    expect(editor.getMarkdown()).toBe(canonical(`# Chat\n\n${answer}`))
+  })
+
+  it('abort keeps what arrived, with unfinished syntax closed', () => {
+    const editor = make()
+    const writer = editor.stream()
+    writer.write('Hello **wor')
+    expect(writer.abort()).toBe('Hello **wor**')
+    expect(writer.done).toBe(true)
+    writer.write('ignored')
+    expect(editor.getMarkdown()).toBe('Hello **wor**')
+  })
+
+  it('renders on the next animation frame without flush', async () => {
+    const editor = make()
+    const writer = editor.stream()
+    writer.write('# Hi')
+    expect(editor.view.dom.querySelector('h1')).toBeNull()
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+    expect(editor.view.dom.querySelector('h1')?.textContent).toBe('Hi')
+    writer.end()
+  })
+
+  it('setMarkdown and a new stream end the running one', () => {
+    const editor = make()
+    const first = editor.stream()
+    first.write('first')
+    const second = editor.stream()
+    expect(first.done).toBe(true)
+    second.write(' second')
+    second.end()
+    expect(editor.getMarkdown()).toBe('first\n\nsecond')
+    const third = editor.stream()
+    third.write('dropped')
+    editor.setMarkdown('# Fresh')
+    expect(third.done).toBe(true)
+    expect(editor.isStreaming()).toBe(false)
+    expect(editor.getMarkdown()).toBe('# Fresh')
+  })
+})
+
+describe('streaming at the cursor', () => {
+  it('inserts inline text like a paste, keeping spaces, as one undo step', () => {
+    const editor = make('Before after')
+    cursorAfter(editor.view, 'Before ')
+    const writer = editor.stream({ at: 'cursor' })
+    feed(writer, '**bold** text ', 3, () => {
+      expect(visibleText(editor.view.state.doc)).not.toMatch(RAW_SYNTAX)
+    })
+    expect(writer.end()).toBe('Before **bold** text after')
+    editor.commands.undo()
+    expect(editor.getMarkdown()).toBe('Before after')
+  })
+
+  it('keeps headings and lists as blocks, merging only edge paragraphs', () => {
+    const editor = make('Intro text')
+    cursorAfter(editor.view, 'Intro')
+    const writer = editor.stream({ at: 'cursor' })
+    feed(writer, ' more.\n\n## New section\n\n- one\n- two', 5)
+    // The rest of the original paragraph keeps its own leading space.
+    expect(writer.end()).toBe('Intro more.\n\n## New section\n\n- one\n- two\n\n text')
+  })
+
+  it('replaces the selection', () => {
+    const editor = make('Keep this, replace that.')
+    select(editor.view, 'replace that')
+    const writer = editor.stream({ at: 'cursor' })
+    feed(writer, 'use *this*', 2)
+    expect(writer.end()).toBe('Keep this, use *this*.')
+    editor.commands.undo()
+    expect(editor.getMarkdown()).toBe('Keep this, replace that.')
+  })
+})
+
+describe('streamFrom', () => {
+  async function* tokens(text: string, size: number) {
+    for (let i = 0; i < text.length; i += size) yield text.slice(i, i + size)
+  }
+
+  it('streams an async iterable to completion', async () => {
+    const editor = make()
+    expect(await editor.streamFrom(tokens(answer, 11))).toBe(canonical(answer))
+  })
+
+  it('decodes a byte stream, including characters split across chunks', async () => {
+    const bytes = new TextEncoder().encode('Café **naïve** 🎉')
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const byte of bytes) controller.enqueue(new Uint8Array([byte]))
+        controller.close()
+      },
+    })
+    const editor = make()
+    expect(await editor.streamFrom(body)).toBe('Café **naïve** 🎉')
+  })
+
+  it('stops on abort signal and keeps what arrived', async () => {
+    const controller = new AbortController()
+    async function* slow() {
+      yield 'Hello **wor'
+      controller.abort()
+      yield 'ld**'
+    }
+    const editor = make()
+    expect(await editor.streamFrom(slow(), { signal: controller.signal })).toBe('Hello **wor**')
+  })
+
+  it('keeps what arrived and rethrows when the source fails', async () => {
+    async function* failing() {
+      yield 'Partial `cod'
+      throw new Error('network down')
+    }
+    const editor = make()
+    await expect(editor.streamFrom(failing())).rejects.toThrow('network down')
+    expect(editor.getMarkdown()).toBe('Partial `cod`')
+    expect(editor.isStreaming()).toBe(false)
+  })
+})
+```
+
+- [ ] **Step 4: Run them to verify they fail**
+
+Run: `pnpm test test/editor.test.ts test/stream.test.ts`
 Expected: FAIL with `Failed to resolve import "../src"`.
 
-- [ ] **Step 4: Implement the clipboard text parser**
+- [ ] **Step 5: Implement the paste rule**
 
 `src/clipboard.ts`:
 
@@ -3202,29 +4308,320 @@ import { Fragment, Slice, type Node } from 'prosemirror-model'
 import { schema } from './schema'
 
 /**
+ * Turns parsed markdown into a slice for inserting into existing text, the
+ * way a paste does: a paragraph at either edge merges into the text around
+ * the cursor, while headings, lists, code blocks and tables stay whole blocks.
+ */
+export function markdownSlice(doc: Node): Slice {
+  const openStart = doc.firstChild?.type === schema.nodes.paragraph ? 1 : 0
+  const openEnd = doc.lastChild?.type === schema.nodes.paragraph ? 1 : 0
+  return new Slice(doc.content, openStart, openEnd)
+}
+
+/** Adds `text` to the start (or end) of a paragraph's content. */
+function padParagraph(paragraph: Node, text: string, atEnd: boolean): Node {
+  const padding = Fragment.from(schema.text(text))
+  return paragraph.copy(atEnd ? paragraph.content.append(padding) : padding.append(paragraph.content))
+}
+
+/**
  * Pasted plain text is read as markdown, so pasting `**bold**` gives bold text.
- * Markdown trims the spaces around a paragraph; for a single-paragraph paste
- * they are put back, so pasting " word" after "a" gives "a word".
+ * Markdown trims the spaces around a paragraph; at the edges of the pasted
+ * text they are put back, so pasting " word" after "a" gives "a word".
  */
 export function createClipboardTextParser(parse: (markdown: string) => Node): (text: string) => Slice {
   return (text) => {
     if (!text.trim()) return text ? new Slice(Fragment.from(schema.text(text)), 0, 0) : Slice.empty
-    const doc = parse(text)
-    const first = doc.firstChild
-    if (doc.childCount !== 1 || first?.type !== schema.nodes.paragraph) return Slice.maxOpen(doc.content)
+    let doc = parse(text)
     const leading = /^[ \t]*/.exec(text)![0]
     const trailing = /[ \t]*$/.exec(text)![0]
-    let content = first.content
-    if (leading) content = Fragment.from(schema.text(leading)).append(content)
-    if (trailing) content = content.append(Fragment.from(schema.text(trailing)))
-    return new Slice(content, 0, 0)
+    const { paragraph } = schema.nodes
+    if (leading && doc.firstChild!.type === paragraph) {
+      doc = doc.copy(doc.content.replaceChild(0, padParagraph(doc.firstChild!, leading, false)))
+    }
+    if (trailing && doc.lastChild!.type === paragraph) {
+      doc = doc.copy(
+        doc.content.replaceChild(doc.childCount - 1, padParagraph(doc.lastChild!, trailing, true)),
+      )
+    }
+    return markdownSlice(doc)
   }
 }
 ```
 
-- [ ] **Step 5: Implement createEditor**
+- [ ] **Step 6: Implement the streaming engine**
 
-Note: `columnResizing` from prosemirror-tables is deliberately not used; markdown cannot store column widths, so a resize would be lost on save.
+Key ideas, so the code reads easily: a stream owns a *region* of the document. `endRegion` (AI replies) freezes blocks that can no longer change and re-parses only the tail each frame. `cursorRegion` (AI writing into a document) re-inserts the whole streamed text with the paste rule each frame, undoing its previous insertion first by inverting its own steps. Frames are applied with `addToHistory: false`; `end()` restores the region and applies the exact result as one recorded transaction, so the whole stream is one undo step.
+
+`src/stream/stream.ts`:
+
+```ts
+import type { Node, Slice } from 'prosemirror-model'
+import { Plugin, PluginKey, Selection, type Transaction } from 'prosemirror-state'
+import type { Step } from 'prosemirror-transform'
+import { Decoration, DecorationSet, type EditorView } from 'prosemirror-view'
+import { healMarkdown } from './heal'
+import { stableLength } from './stable'
+
+/** Options for `editor.stream()` and `editor.streamFrom()`. */
+export interface StreamOptions {
+  /**
+   * `'end'` (default) appends to the document, for AI replies. `'cursor'`
+   * replaces the selection, for AI writing into an existing document.
+   */
+  at?: 'end' | 'cursor'
+  /**
+   * Keep the end of the stream in view unless the user has scrolled away.
+   * Defaults to true for `'end'` and false for `'cursor'`.
+   */
+  autoScroll?: boolean
+}
+
+/** Feeds markdown into the editor as it arrives. Create one with `editor.stream()`. */
+export interface StreamWriter {
+  /** Adds the next piece of text. It is rendered on the next animation frame. */
+  write(chunk: string): void
+  /** Renders buffered text now instead of on the next frame. */
+  flush(): void
+  /** Finishes the stream: renders the exact final markdown as one undo step. Returns the document's markdown. */
+  end(): string
+  /** Stops early and keeps what has arrived, with unfinished syntax closed. Returns the document's markdown. */
+  abort(): string
+  /** True once `end()` or `abort()` has been called, or the stream was replaced. */
+  readonly done: boolean
+}
+
+/** Marks transactions made by a stream, so the editor does not report them as edits. */
+export const STREAM_META = 'lme:stream'
+
+const caretKey = new PluginKey<number | null>('lme-stream-caret')
+
+/** Shows a blinking caret where streamed text arrives, and marks the root while streaming. */
+export function streamCaret(): Plugin<number | null> {
+  return new Plugin<number | null>({
+    key: caretKey,
+    state: {
+      init: () => null,
+      apply(tr, caret) {
+        const meta = tr.getMeta(caretKey) as number | null | undefined
+        if (meta !== undefined) return meta
+        return caret === null ? null : tr.mapping.map(caret)
+      },
+    },
+    props: {
+      decorations(state) {
+        const caret = caretKey.getState(state)
+        if (caret == null) return null
+        const widget = Decoration.widget(
+          caret,
+          () => {
+            const span = document.createElement('span')
+            span.className = 'lme-stream-caret'
+            span.setAttribute('aria-hidden', 'true')
+            return span
+          },
+          { side: 1, key: 'lme-stream-caret' },
+        )
+        return DecorationSet.create(state.doc, [widget])
+      },
+      attributes(state): Record<string, string> {
+        return caretKey.getState(state) == null ? {} : { class: 'lme-streaming', 'aria-busy': 'true' }
+      },
+    },
+  })
+}
+
+/** End of the text just before `pos`, where the caret should sit. */
+function caretBefore(doc: Node, pos: number): number {
+  const selection = Selection.findFrom(doc.resolve(pos), -1, true)
+  return selection ? selection.head : pos
+}
+
+function scrollContainer(element: HTMLElement): HTMLElement {
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+    const { overflowY } = getComputedStyle(parent)
+    if ((overflowY === 'auto' || overflowY === 'scroll') && parent.scrollHeight > parent.clientHeight)
+      return parent
+  }
+  return (document.scrollingElement as HTMLElement | null) ?? document.documentElement
+}
+
+export interface StreamHooks {
+  parse: (markdown: string) => Node
+  /** Markdown to a slice with paste semantics, for `at: 'cursor'`. */
+  toSlice: (markdown: string) => Slice
+  getMarkdown: () => string
+  /** Called once when the stream finishes, is aborted or is detached. */
+  onDone: () => void
+}
+
+/** A writer plus `detach()`, which the editor uses when it replaces the document mid-stream. */
+export interface ActiveStream extends StreamWriter {
+  /** Stops without touching the document. */
+  detach(): void
+}
+
+/** The part of the document a stream owns, and how to put it back. */
+interface Region {
+  /** Where the caret sits before any text has arrived. */
+  start: number
+  apply(tr: Transaction, markdown: string, heal: boolean): number
+  restore(tr: Transaction): void
+}
+
+/**
+ * AI replies at the end of the document. Blocks that can no longer change
+ * are frozen, so each frame only re-parses the growing tail.
+ */
+function endRegion(view: EditorView, parse: (markdown: string) => Node): Region {
+  const doc = view.state.doc
+  const empty = doc.childCount === 1 && doc.firstChild!.isTextblock && doc.firstChild!.content.size === 0
+  const from = empty ? 0 : doc.content.size
+  const original = doc.slice(from, doc.content.size)
+  let tailFrom = from
+  let frozenLength = 0
+
+  return {
+    start: caretBefore(doc, doc.content.size),
+    apply(tr, markdown, heal) {
+      const rest = markdown.slice(frozenLength)
+      const stable = heal ? stableLength(rest) : 0
+      const nodes: Node[] = []
+      if (stable > 0) parse(rest.slice(0, stable)).forEach((node) => nodes.push(node))
+      const frozenSize = nodes.reduce((size, node) => size + node.nodeSize, 0)
+      const tail = rest.slice(stable)
+      if (tail.trim()) parse(heal ? healMarkdown(tail) : tail).forEach((node) => nodes.push(node))
+      if (nodes.length === 0 && tailFrom === 0) nodes.push(tr.doc.type.schema.nodes.paragraph!.create())
+      tr.replaceWith(tailFrom, tr.doc.content.size, nodes)
+      tailFrom += frozenSize
+      frozenLength += stable
+      return caretBefore(tr.doc, tr.doc.content.size)
+    },
+    restore(tr) {
+      tr.replace(from, tr.doc.content.size, original)
+      tailFrom = from
+      frozenLength = 0
+    },
+  }
+}
+
+/**
+ * AI writing at the cursor. Each frame puts the whole streamed text in
+ * place of the selection exactly the way a paste would, so the result
+ * never jumps when the stream ends.
+ */
+function cursorRegion(view: EditorView, toSlice: (markdown: string) => Slice): Region {
+  const { from, to } = view.state.selection
+  let steps: Step[] = []
+  let docs: Node[] = []
+
+  const restore = (tr: Transaction): void => {
+    for (let i = steps.length - 1; i >= 0; i--) tr.step(steps[i]!.invert(docs[i]!))
+    steps = []
+    docs = []
+  }
+
+  return {
+    start: to,
+    apply(tr, markdown, heal) {
+      restore(tr)
+      const start = tr.steps.length
+      tr.replaceRange(from, to, toSlice(heal ? healMarkdown(markdown) : markdown))
+      steps = tr.steps.slice(start)
+      docs = tr.docs.slice(start)
+      return caretBefore(tr.doc, tr.mapping.slice(start).map(to, 1))
+    },
+    restore,
+  }
+}
+
+/** Starts a stream on `view`. Used by `editor.stream()`. */
+export function createStream(view: EditorView, options: StreamOptions, hooks: StreamHooks): ActiveStream {
+  const at = options.at ?? 'end'
+  const autoScroll = options.autoScroll ?? at === 'end'
+  const region = at === 'end' ? endRegion(view, hooks.parse) : cursorRegion(view, hooks.toSlice)
+  let buffer = ''
+  let rendered = ''
+  let frame: number | undefined
+  let done = false
+  // Show the caret and the streaming state right away, before any text arrives.
+  view.dispatch(
+    view.state.tr.setMeta(STREAM_META, true).setMeta('addToHistory', false).setMeta(caretKey, region.start),
+  )
+
+  const render = (): void => {
+    frame = undefined
+    if (done || buffer === rendered) return
+    const scroller = autoScroll ? scrollContainer(view.dom) : null
+    const nearBottom = scroller
+      ? scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48
+      : false
+    const tr = view.state.tr.setMeta(STREAM_META, true).setMeta('addToHistory', false)
+    const caret = region.apply(tr, buffer, true)
+    tr.setMeta(caretKey, caret)
+    view.dispatch(tr)
+    rendered = buffer
+    if (scroller && nearBottom) scroller.scrollTop = scroller.scrollHeight
+  }
+
+  const cancelFrame = (): void => {
+    if (frame !== undefined) cancelAnimationFrame(frame)
+    frame = undefined
+  }
+
+  const finish = (heal: boolean): void => {
+    if (done) return
+    cancelFrame()
+    done = true
+    // Put the document back as it was, without recording history...
+    const restore = view.state.tr
+      .setMeta(STREAM_META, true)
+      .setMeta('addToHistory', false)
+      .setMeta(caretKey, null)
+    region.restore(restore)
+    view.dispatch(restore)
+    // ...then insert the final result as a single, undoable edit.
+    const final = view.state.tr
+    const markdown = heal ? healMarkdown(buffer) : buffer
+    if (markdown) region.apply(final, markdown, false)
+    view.dispatch(final.scrollIntoView())
+    hooks.onDone()
+  }
+
+  return {
+    write(chunk) {
+      if (done || !chunk) return
+      buffer += chunk
+      frame ??= requestAnimationFrame(render)
+    },
+    flush() {
+      cancelFrame()
+      render()
+    },
+    end() {
+      finish(false)
+      return hooks.getMarkdown()
+    },
+    abort() {
+      finish(true)
+      return hooks.getMarkdown()
+    },
+    detach() {
+      if (done) return
+      cancelFrame()
+      done = true
+      hooks.onDone()
+    },
+    get done() {
+      return done
+    },
+  }
+}
+```
+
+- [ ] **Step 7: Implement createEditor**
+
+Note: `columnResizing` from prosemirror-tables is deliberately not used; markdown cannot store column widths, so a resize would be lost on save. Transactions marked `STREAM_META` are not reported through `onChange`.
 
 `src/editor.ts`:
 
@@ -3242,8 +4639,18 @@ import { createParser } from './markdown/parser'
 import { serializeMarkdown } from './markdown/serializer'
 import { markdownInputRules } from './plugins/inputRules'
 import { markdownKeymaps } from './plugins/keymap'
+import { codeCopy } from './plugins/codeCopy'
+import { highlightPlugin, type Highlighter } from './plugins/highlight'
 import { linkClicks } from './plugins/links'
 import { placeholder } from './plugins/placeholder'
+import {
+  createStream,
+  STREAM_META,
+  streamCaret,
+  type ActiveStream,
+  type StreamOptions,
+  type StreamWriter,
+} from './stream/stream'
 import { ListItemView } from './views/listItem'
 
 /** Options for {@link createEditor}. */
@@ -3274,6 +4681,13 @@ export interface EditorOptions {
     /** `- ( )` / `- (x)` radio lists. Defaults to false. */
     radio?: boolean
   }
+  /**
+   * Colours code blocks. Pass `highlight` from `live-md-editor/highlight`, or
+   * any function that returns token ranges (see {@link Highlighter}).
+   */
+  highlight?: Highlighter
+  /** Show a copy button on code blocks. Defaults to true. */
+  copyButton?: boolean
   /** Extra class names. */
   classNames?: {
     /** Added to the editable root, next to `lme`. */
@@ -3291,7 +4705,14 @@ export interface EditorEvents {
   blur: () => void
   /** Cmd/Ctrl + K was pressed. Open your link UI, then call `commands.setLink`. */
   linkShortcut: () => void
+  /** A stream started. The editor is read-only until it ends. */
+  streamStart: () => void
+  /** A stream ended (finished, aborted or replaced). Receives the document's markdown. */
+  streamEnd: (markdown: string) => void
 }
+
+/** Text sources `streamFrom` accepts: strings or UTF-8 bytes, from any async iterable or web stream. */
+export type TextSource = AsyncIterable<string | Uint8Array> | ReadableStream<string | Uint8Array>
 
 /** A mounted editor. Create one with {@link createEditor}. */
 export interface Editor {
@@ -3308,6 +4729,21 @@ export interface Editor {
   focus(): void
   /** Whether a mark or block is active at the selection, e.g. `isActive('heading', { level: 2 })`. */
   isActive(name: ActiveName, attrs?: { level?: number }): boolean
+  /**
+   * Starts feeding markdown into the editor as it arrives, for example from
+   * an AI model. The editor is read-only until the stream ends; the whole
+   * stream becomes one undo step and `onChange` fires once, at the end.
+   * Starting a new stream finishes any previous one.
+   */
+  stream(options?: StreamOptions): StreamWriter
+  /**
+   * Streams a whole source (a `fetch` body, an SDK text stream, an async
+   * generator) and resolves with the document's markdown once it ends.
+   * If the source fails, what arrived is kept and the error is rethrown.
+   */
+  streamFrom(source: TextSource, options?: StreamOptions & { signal?: AbortSignal }): Promise<string>
+  /** Whether a stream is running. */
+  isStreaming(): boolean
   /** Subscribes to an event and returns a function that unsubscribes. */
   on<E extends keyof EditorEvents>(event: E, handler: EditorEvents[E]): () => void
   /** Unmounts the editor and removes its DOM. */
@@ -3328,13 +4764,17 @@ export function createEditor(options: EditorOptions): Editor {
     markdownInputRules({ radio }),
     ...markdownKeymaps({ onLinkShortcut: () => emit('linkShortcut') }),
     history(),
+    streamCaret(),
     dropCursor(),
     gapCursor(),
     tableEditing(),
     linkClicks(),
   ]
   if (options.placeholder) plugins.push(placeholder(options.placeholder))
+  if (options.highlight) plugins.push(highlightPlugin(options.highlight))
+  if (options.copyButton ?? true) plugins.push(codeCopy())
 
+  const toSlice = createClipboardTextParser(parse)
   const createState = (markdown: string) => EditorState.create({ doc: parse(markdown), plugins })
 
   let cachedDoc: Node | null = null
@@ -3367,9 +4807,10 @@ export function createEditor(options: EditorOptions): Editor {
   }
 
   let editable = options.editable ?? true
+  let active: ActiveStream | null = null
   const view: EditorView = new EditorView(options.element, {
     state: createState(options.value ?? ''),
-    editable: () => editable,
+    editable: () => editable && !active,
     attributes: {
       class: ['lme', options.classNames?.root].filter(Boolean).join(' '),
       role: 'textbox',
@@ -3379,7 +4820,21 @@ export function createEditor(options: EditorOptions): Editor {
     nodeViews: {
       list_item: (node, nodeView, getPos) => new ListItemView(node, nodeView, getPos),
     },
-    clipboardTextParser: createClipboardTextParser(parse),
+    clipboardTextParser: toSlice,
+    // ProseMirror opens pasted slices as far as it can, which would merge a
+    // pasted heading into the paragraph at the cursor. Plain text (and text
+    // copied from VS Code, which also offers styled HTML) is inserted with
+    // markdownSlice rules instead: only edge paragraphs merge.
+    handlePaste(pasteView, event) {
+      const data = event.clipboardData
+      const text = data?.getData('text/plain')
+      if (!data || !text || pasteView.state.selection.$from.parent.type.spec.code) return false
+      if (data.getData('text/html') && !data.types.includes('vscode-editor-data')) return false
+      pasteView.dispatch(
+        pasteView.state.tr.replaceSelection(toSlice(text)).scrollIntoView().setMeta('uiEvent', 'paste'),
+      )
+      return true
+    },
     handleDOMEvents: {
       focus: () => {
         emit('focus')
@@ -3393,7 +4848,7 @@ export function createEditor(options: EditorOptions): Editor {
     },
     dispatchTransaction(tr: Transaction) {
       view.updateState(view.state.apply(tr))
-      if (tr.docChanged) {
+      if (tr.docChanged && !tr.getMeta(STREAM_META)) {
         if (changeDelay > 0) {
           cancelChange()
           changeTimer = setTimeout(notifyChange, changeDelay)
@@ -3407,25 +4862,88 @@ export function createEditor(options: EditorOptions): Editor {
 
   if (options.autofocus) view.focus()
 
+  // Applies the current editable state to the view and to checkbox inputs.
+  const refreshEditable = (): void => {
+    view.setProps({})
+    view.dom.querySelectorAll<HTMLInputElement>('input.lme-check-input').forEach((input) => {
+      input.disabled = !view.editable
+    })
+  }
+
+  const stream = (streamOptions: StreamOptions = {}): StreamWriter => {
+    active?.end()
+    const writer = createStream(view, streamOptions, {
+      parse,
+      toSlice,
+      getMarkdown,
+      onDone: () => {
+        if (active === writer) active = null
+        refreshEditable()
+        emit('streamEnd', getMarkdown())
+      },
+    })
+    active = writer
+    refreshEditable()
+    emit('streamStart')
+    return writer
+  }
+
+  async function* chunks(source: TextSource): AsyncGenerator<string> {
+    const decoder = new TextDecoder()
+    const text = (chunk: string | Uint8Array) =>
+      typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true })
+    if ('getReader' in source) {
+      const reader = source.getReader()
+      try {
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          yield text(value)
+        }
+      } finally {
+        reader.releaseLock()
+      }
+    } else {
+      for await (const chunk of source) yield text(chunk)
+    }
+    const rest = decoder.decode()
+    if (rest) yield rest
+  }
+
   return {
     commands: createCommands(view),
     view,
     getMarkdown,
     setMarkdown(markdown) {
+      active?.detach()
       cancelChange()
       view.updateState(createState(markdown))
       emit('selectionChange')
     },
     setEditable(value) {
       editable = value
-      view.setProps({})
-      view.dom.querySelectorAll<HTMLInputElement>('input.lme-check-input').forEach((input) => {
-        input.disabled = !value
-      })
+      refreshEditable()
     },
     isEditable: () => editable,
     focus: () => view.focus(),
     isActive: (name, attrs) => isActive(view.state, name, attrs),
+    stream,
+    async streamFrom(source, streamOptions = {}) {
+      const { signal, ...rest } = streamOptions
+      const writer = stream(rest)
+      try {
+        for await (const chunk of chunks(source)) {
+          if (signal?.aborted || writer.done) break
+          writer.write(chunk)
+        }
+      } catch (error) {
+        writer.abort()
+        throw error
+      }
+      if (writer.done) return getMarkdown()
+      return signal?.aborted ? writer.abort() : writer.end()
+    },
+    isStreaming: () => active !== null,
     on(event, handler) {
       let set = listeners.get(event)
       if (!set) listeners.set(event, (set = new Set()))
@@ -3435,6 +4953,7 @@ export function createEditor(options: EditorOptions): Editor {
       }
     },
     destroy() {
+      active?.detach()
       flushChange()
       view.destroy()
       listeners.clear()
@@ -3443,7 +4962,7 @@ export function createEditor(options: EditorOptions): Editor {
 }
 ```
 
-- [ ] **Step 6: Create the public entry point**
+- [ ] **Step 8: Create the public entry point**
 
 `src/index.ts`:
 
@@ -3454,26 +4973,261 @@ export function createEditor(options: EditorOptions): Editor {
  * @module live-md-editor
  */
 export { createEditor } from './editor'
-export type { Editor, EditorEvents, EditorOptions } from './editor'
+export type { Editor, EditorEvents, EditorOptions, TextSource } from './editor'
+export type { StreamOptions, StreamWriter } from './stream/stream'
+export { healMarkdown } from './stream/heal'
 export type { ActiveName, Commands } from './commands'
+export type { Highlighter, HighlightToken } from './plugins/highlight'
 export { isSafeUrl } from './url'
 ```
 
-- [ ] **Step 7: Run the whole unit suite**
+- [ ] **Step 9: Run the whole unit suite**
 
 Run: `pnpm test && pnpm typecheck && pnpm exec eslint src test`
-Expected: all tests pass (17 in `editor.test.ts`); no type or lint errors.
+Expected: all tests pass (21 in `editor.test.ts`, 20 in `stream.test.ts`); no type or lint errors. The stream test with chunks of 1 character takes about half a second: that is expected.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add package.json pnpm-lock.yaml src/clipboard.ts src/editor.ts src/index.ts test/editor.test.ts
-git commit -m "feat: createEditor public API" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git add package.json pnpm-lock.yaml src/clipboard.ts src/stream/stream.ts src/editor.ts src/index.ts test/fixtures/answer.md test/editor.test.ts test/stream.test.ts
+git commit -m "feat: createEditor public API with AI streaming" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 12: React wrapper
+### Task 14: Highlight add-on (`live-md-editor/highlight`)
+
+**Files:**
+- Create: `src/highlight/index.ts`
+- Test: `test/highlight.test.ts`
+
+**Interfaces:**
+- Consumes: types `Highlighter`, `HighlightToken` from `live-md-editor` (Task 13); `highlightPlugin` (Task 12); test helpers (Task 6).
+- Produces: `highlight: Highlighter` (about 30 languages plus aliases, each loaded with a dynamic `import()` on first use; unknown or empty language returns `null`) and `registerLanguage(name, grammar, aliases?)`.
+
+- [ ] **Step 1: Install lowlight and highlight.js as runtime dependencies**
+
+`highlight.js` is pinned to the minor version lowlight uses, so only one copy is installed.
+
+Run: `pnpm add lowlight@^3.3.0 highlight.js@~11.11.0`
+
+- [ ] **Step 2: Write the failing test**
+
+`test/highlight.test.ts`:
+
+````ts
+import haskell from 'highlight.js/lib/languages/haskell'
+import { describe, expect, it } from 'vitest'
+import type { HighlightToken } from '../src'
+import { highlight, registerLanguage } from '../src/highlight'
+import { highlightPlugin } from '../src/plugins/highlight'
+import { createView, markdownOf } from './helpers'
+
+const textOf = (code: string, tokens: HighlightToken[], className: string) =>
+  tokens.filter((token) => token.className === className).map((token) => code.slice(token.from, token.to))
+
+describe('live-md-editor/highlight', () => {
+  it('loads a language on first use, then answers synchronously', async () => {
+    const code = "const name: string = 'x'"
+    const first = highlight(code, 'ts')
+    expect(first).toBeInstanceOf(Promise)
+    const tokens = (await first)!
+    expect(textOf(code, tokens, 'hljs-keyword')).toContain('const')
+    expect(textOf(code, tokens, 'hljs-string')).toEqual(["'x'"])
+    const second = highlight(code, 'typescript')
+    expect(Array.isArray(second)).toBe(true)
+  })
+
+  it('understands common aliases and ignores unknown languages', async () => {
+    expect(await highlight('def f(): pass', 'py')).not.toBeNull()
+    expect(await highlight('echo hi', 'sh')).not.toBeNull()
+    expect(highlight('x', 'no-such-language')).toBeNull()
+    expect(highlight('x', '')).toBeNull()
+  })
+
+  it('accepts extra grammars', () => {
+    registerLanguage('haskell', haskell, ['hs'])
+    const tokens = highlight('main = putStrLn "hi"', 'hs')
+    expect(Array.isArray(tokens)).toBe(true)
+    expect((tokens as HighlightToken[]).length).toBeGreaterThan(0)
+  })
+
+  it('colours code blocks in the editor once the language has loaded', async () => {
+    const view = createView('```rust\nfn main() {}\n```', [highlightPlugin(highlight)])
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(view.dom.querySelector('pre .hljs-keyword')?.textContent).toBe('fn')
+    expect(markdownOf(view)).toBe('```rust\nfn main() {}\n```')
+  })
+})
+````
+
+- [ ] **Step 3: Run it to verify it fails**
+
+Run: `pnpm test test/highlight.test.ts`
+Expected: FAIL with `Failed to resolve import "../src/highlight"`.
+
+- [ ] **Step 4: Implement the add-on**
+
+`src/highlight/index.ts`:
+
+```ts
+/**
+ * Syntax highlighting for code blocks, built on highlight.js (through
+ * lowlight). Pass `highlight` to `createEditor`. Each language is loaded the
+ * first time a code block uses it, so unused languages cost nothing.
+ *
+ * @module live-md-editor/highlight
+ */
+import type { LanguageFn } from 'highlight.js'
+import { createLowlight } from 'lowlight'
+import type { Highlighter, HighlightToken } from 'live-md-editor'
+
+type Loader = () => Promise<{ default: LanguageFn }>
+
+// Each import() becomes its own small file in the app's bundle.
+const loaders: Record<string, Loader> = {
+  bash: () => import('highlight.js/lib/languages/bash'),
+  c: () => import('highlight.js/lib/languages/c'),
+  cpp: () => import('highlight.js/lib/languages/cpp'),
+  csharp: () => import('highlight.js/lib/languages/csharp'),
+  css: () => import('highlight.js/lib/languages/css'),
+  dart: () => import('highlight.js/lib/languages/dart'),
+  diff: () => import('highlight.js/lib/languages/diff'),
+  dockerfile: () => import('highlight.js/lib/languages/dockerfile'),
+  go: () => import('highlight.js/lib/languages/go'),
+  graphql: () => import('highlight.js/lib/languages/graphql'),
+  ini: () => import('highlight.js/lib/languages/ini'),
+  java: () => import('highlight.js/lib/languages/java'),
+  javascript: () => import('highlight.js/lib/languages/javascript'),
+  json: () => import('highlight.js/lib/languages/json'),
+  kotlin: () => import('highlight.js/lib/languages/kotlin'),
+  lua: () => import('highlight.js/lib/languages/lua'),
+  makefile: () => import('highlight.js/lib/languages/makefile'),
+  markdown: () => import('highlight.js/lib/languages/markdown'),
+  php: () => import('highlight.js/lib/languages/php'),
+  python: () => import('highlight.js/lib/languages/python'),
+  r: () => import('highlight.js/lib/languages/r'),
+  ruby: () => import('highlight.js/lib/languages/ruby'),
+  rust: () => import('highlight.js/lib/languages/rust'),
+  scss: () => import('highlight.js/lib/languages/scss'),
+  shell: () => import('highlight.js/lib/languages/shell'),
+  sql: () => import('highlight.js/lib/languages/sql'),
+  swift: () => import('highlight.js/lib/languages/swift'),
+  typescript: () => import('highlight.js/lib/languages/typescript'),
+  xml: () => import('highlight.js/lib/languages/xml'),
+  yaml: () => import('highlight.js/lib/languages/yaml'),
+}
+
+const aliases: Record<string, string> = {
+  sh: 'bash',
+  zsh: 'bash',
+  console: 'shell',
+  'c++': 'cpp',
+  cs: 'csharp',
+  'c#': 'csharp',
+  docker: 'dockerfile',
+  golang: 'go',
+  gql: 'graphql',
+  toml: 'ini',
+  js: 'javascript',
+  jsx: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  jsonc: 'json',
+  kt: 'kotlin',
+  md: 'markdown',
+  py: 'python',
+  rb: 'ruby',
+  rs: 'rust',
+  ts: 'typescript',
+  tsx: 'typescript',
+  mts: 'typescript',
+  html: 'xml',
+  svg: 'xml',
+  vue: 'xml',
+  yml: 'yaml',
+  patch: 'diff',
+}
+
+const lowlight = createLowlight()
+const loading = new Map<string, Promise<void>>()
+
+interface HastNode {
+  type: string
+  value?: string
+  properties?: { className?: unknown }
+  children?: HastNode[]
+}
+
+/** Flattens lowlight's syntax tree into character ranges with class names. */
+function tokensOf(root: HastNode): HighlightToken[] {
+  const tokens: HighlightToken[] = []
+  let offset = 0
+  const walk = (node: HastNode): void => {
+    if (node.type === 'text') {
+      offset += node.value?.length ?? 0
+      return
+    }
+    const start = offset
+    node.children?.forEach(walk)
+    const className = node.properties?.className
+    if (Array.isArray(className) && offset > start) {
+      tokens.push({ from: start, to: offset, className: className.join(' ') })
+    }
+  }
+  walk(root)
+  return tokens
+}
+
+function resolve(language: string): string | null {
+  const name = language.toLowerCase()
+  if (lowlight.registered(name)) return name
+  const target = aliases[name] ?? name
+  return target in loaders ? target : null
+}
+
+/**
+ * A {@link Highlighter} for about 30 common languages (and their usual
+ * aliases such as `ts`, `py`, `sh`). Unknown languages stay plain.
+ */
+export const highlight: Highlighter = (code, language) => {
+  const name = resolve(language)
+  if (!name) return null
+  if (lowlight.registered(name)) return tokensOf(lowlight.highlight(name, code) as HastNode)
+  let ready = loading.get(name)
+  if (!ready) {
+    ready = loaders[name]!().then((module) => lowlight.register(name, module.default))
+    loading.set(name, ready)
+  }
+  return ready.then(() => tokensOf(lowlight.highlight(name, code) as HastNode))
+}
+
+/**
+ * Adds a highlight.js grammar that is not included, for example
+ * `registerLanguage('haskell', haskell, ['hs'])` with
+ * `import haskell from 'highlight.js/lib/languages/haskell'`.
+ */
+export function registerLanguage(name: string, grammar: LanguageFn, languageAliases: string[] = []): void {
+  lowlight.register(name, grammar)
+  if (languageAliases.length) lowlight.registerAlias(name, languageAliases)
+}
+```
+
+- [ ] **Step 5: Run it to verify it passes**
+
+Run: `pnpm test test/highlight.test.ts && pnpm typecheck`
+Expected: 4 tests pass; no type errors.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add package.json pnpm-lock.yaml src/highlight/index.ts test/highlight.test.ts
+git commit -m "feat: live-md-editor/highlight add-on" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 15: React wrapper
 
 **Files:**
 - Create: `src/react/index.tsx`
@@ -3481,7 +5235,7 @@ git commit -m "feat: createEditor public API" -m "Co-Authored-By: Claude Opus 5.
 
 **Interfaces:**
 - Consumes: `createEditor`, `Editor`, `EditorOptions` from `live-md-editor` (resolved to `src/index.ts` by the alias).
-- Produces: `LiveMarkdownEditor` (forwardRef; the ref receives `Editor | null`) with props `value`, `defaultValue`, `onChange`, `editable`, `className`, `style`, plus mount-only `placeholder`, `autofocus`, `ariaLabel`, `extensions`, `classNames`, `changeDelay`. Renders `<div class="lme-root ...">`. Controlled rule: a `value` equal to the last markdown the editor reported is ignored; otherwise it replaces the document if it differs from `getMarkdown()`.
+- Produces: `LiveMarkdownEditor` (forwardRef; the ref receives `Editor | null`) with props `value`, `defaultValue`, `onChange`, `editable`, `streaming`, `className`, `style`, plus mount-only `placeholder`, `autofocus`, `ariaLabel`, `extensions`, `classNames`, `changeDelay`, `highlight`, `copyButton`. Renders `<div class="lme-root ...">`. Controlled rule: a `value` equal to the last markdown the editor reported is ignored; otherwise it replaces the document if it differs from `getMarkdown()`. Streaming rule: while `streaming` is true, a `value` that extends the previous one is written to a stream; any other `value` restarts it; turning `streaming` false ends it.
 
 - [ ] **Step 1: Install React for development**
 
@@ -3578,6 +5332,38 @@ describe('LiveMarkdownEditor', () => {
     expect(ref.current!.isEditable()).toBe(true)
   })
 })
+
+describe('LiveMarkdownEditor streaming', () => {
+  function Chat({ text, streaming }: { text: string; streaming: boolean }) {
+    return <LiveMarkdownEditor value={text} streaming={streaming} editable={false} />
+  }
+
+  it('streams a growing value and ends with the exact markdown', () => {
+    const answer = '## Title\n\nSome **bold** text and `code`.\n\n- [x] done'
+    const { container, rerender } = render(<Chat text="" streaming />)
+    for (let i = 1; i <= answer.length; i += 4) {
+      act(() => rerender(<Chat text={answer.slice(0, i)} streaming />))
+      // Rendered through a stream: read-only, marked busy, raw syntax repaired.
+      const root = container.querySelector('.lme')!
+      expect(root.classList.contains('lme-streaming')).toBe(true)
+      expect(root.getAttribute('aria-busy')).toBe('true')
+    }
+    act(() => rerender(<Chat text={answer} streaming={false} />))
+    const root = container.querySelector('.lme')!
+    expect(root.classList.contains('lme-streaming')).toBe(false)
+    expect(root.querySelector('h2')?.textContent).toBe('Title')
+    expect(root.querySelector('strong')?.textContent).toBe('bold')
+    expect(root.textContent).not.toContain('**')
+  })
+
+  it('restarts when the value is replaced instead of extended', () => {
+    const ref = createRef<Editor | null>()
+    const { rerender } = render(<LiveMarkdownEditor ref={ref} value="First answer" streaming />)
+    act(() => rerender(<LiveMarkdownEditor ref={ref} value="Second" streaming />))
+    act(() => rerender(<LiveMarkdownEditor ref={ref} value="Second answer" streaming={false} />))
+    expect(ref.current!.getMarkdown()).toBe('Second answer')
+  })
+})
 ```
 
 `test/ssr.test.tsx` (runs in Node, without a DOM, like a Next.js server render):
@@ -3623,7 +5409,7 @@ import {
   useState,
   type CSSProperties,
 } from 'react'
-import { createEditor, type Editor, type EditorOptions } from 'live-md-editor'
+import { createEditor, type Editor, type EditorOptions, type StreamWriter } from 'live-md-editor'
 
 // useLayoutEffect does nothing on the server; useEffect keeps SSR quiet.
 const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
@@ -3631,7 +5417,14 @@ const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : us
 /** Props for {@link LiveMarkdownEditor}. */
 export interface LiveMarkdownEditorProps extends Pick<
   EditorOptions,
-  'placeholder' | 'autofocus' | 'ariaLabel' | 'extensions' | 'classNames' | 'changeDelay'
+  | 'placeholder'
+  | 'autofocus'
+  | 'ariaLabel'
+  | 'extensions'
+  | 'classNames'
+  | 'changeDelay'
+  | 'highlight'
+  | 'copyButton'
 > {
   /** Controlled markdown value. Pair with `onChange`. */
   value?: string
@@ -3641,6 +5434,13 @@ export interface LiveMarkdownEditorProps extends Pick<
   onChange?: (markdown: string) => void
   /** Defaults to true. */
   editable?: boolean
+  /**
+   * While true, `value` is treated as text that is still arriving (for
+   * example an AI reply): each longer `value` is streamed in, rendered with
+   * unfinished syntax repaired. When it turns false the stream ends. A
+   * `value` that does not continue the previous one restarts the stream.
+   */
+  streaming?: boolean
   /** Class name of the wrapping `<div>`. */
   className?: string
   style?: CSSProperties
@@ -3649,11 +5449,12 @@ export interface LiveMarkdownEditorProps extends Pick<
 /**
  * React wrapper around {@link createEditor}. The ref exposes the core
  * {@link Editor} (null until mounted). `placeholder`, `extensions`,
- * `ariaLabel`, `classNames`, `changeDelay` and `autofocus` are read once, on mount.
+ * `ariaLabel`, `classNames`, `changeDelay`, `highlight`, `copyButton` and
+ * `autofocus` are read once, on mount.
  */
 export const LiveMarkdownEditor = forwardRef<Editor | null, LiveMarkdownEditorProps>(
   function LiveMarkdownEditor(props, ref) {
-    const { value, editable = true, className, style } = props
+    const { value, editable = true, streaming = false, className, style } = props
     const hostRef = useRef<HTMLDivElement>(null)
     const [editor, setEditor] = useState<Editor | null>(null)
     const latest = useRef(props)
@@ -3661,6 +5462,8 @@ export const LiveMarkdownEditor = forwardRef<Editor | null, LiveMarkdownEditorPr
     // the parent echoing our own change back (possibly late, with
     // changeDelay), so it must not replace the document.
     const reported = useRef<string | undefined>(undefined)
+    // The running stream and the text it has been given so far.
+    const stream = useRef<{ writer: StreamWriter; text: string } | null>(null)
     useIsomorphicLayoutEffect(() => {
       latest.current = props
     })
@@ -3683,19 +5486,47 @@ export const LiveMarkdownEditor = forwardRef<Editor | null, LiveMarkdownEditorPr
         ariaLabel: initial.ariaLabel,
         extensions: initial.extensions,
         classNames: initial.classNames,
+        highlight: initial.highlight,
+        copyButton: initial.copyButton,
       })
       setEditor(instance)
       return () => {
+        stream.current = null
         instance.destroy()
         setEditor(null)
       }
     }, [])
 
     useEffect(() => {
-      if (!editor || value === undefined || value === reported.current) return
+      if (!editor) return
+      const text = value ?? ''
+      const current = stream.current
+      if (streaming) {
+        if (current && text.startsWith(current.text)) {
+          current.writer.write(text.slice(current.text.length))
+          current.text = text
+        } else {
+          // A new stream, or a regenerated answer that does not continue the old one.
+          current?.writer.end()
+          editor.setMarkdown('')
+          const writer = editor.stream()
+          writer.write(text)
+          stream.current = { writer, text }
+        }
+        reported.current = text
+        return
+      }
+      if (current) {
+        stream.current = null
+        if (text.startsWith(current.text)) current.writer.write(text.slice(current.text.length))
+        current.writer.end()
+        reported.current = text
+        return
+      }
+      if (value === undefined || value === reported.current) return
       if (value !== editor.getMarkdown()) editor.setMarkdown(value)
       reported.current = value
-    }, [editor, value])
+    }, [editor, value, streaming])
 
     useEffect(() => {
       if (editor && editor.isEditable() !== editable) editor.setEditable(editable)
@@ -3711,28 +5542,28 @@ export type { Editor } from 'live-md-editor'
 - [ ] **Step 5: Run them to verify they pass**
 
 Run: `pnpm test test/react.test.tsx test/ssr.test.tsx && pnpm typecheck && pnpm exec eslint src`
-Expected: 6 tests pass (the late-echo test also fails if you remove the `reported` guard: that is what it protects); no type or lint errors (the React hooks lint rules apply to this file).
+Expected: 8 tests pass (7 + 1). Two tests guard subtle behaviour: the late-echo test fails if you remove the `reported` guard, and the first streaming test fails if `streaming` is ignored (it checks the busy state mid-stream, not only the final text). No type or lint errors (the React hooks lint rules apply to this file).
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add package.json pnpm-lock.yaml src/react/index.tsx test/react.test.tsx test/ssr.test.tsx
-git commit -m "feat: React wrapper" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat: React wrapper with streaming prop" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 13: Default theme and browser tests
+### Task 16: Default theme and browser tests
 
 **Files:**
 - Create: `src/style.css`
 - Create: `e2e/fixture/index.html`, `e2e/fixture/main.ts` (the page the browser tests drive; also `pnpm dev`)
 - Create: `playwright.config.ts`
-- Test: `e2e/editor.spec.ts`
+- Test: `e2e/editor.spec.ts`, `e2e/ai.spec.ts`
 
 **Interfaces:**
-- Consumes: `createEditor` (Task 11).
-- Produces: `src/style.css` with every rule at the specificity of one class (`.lme ...`): enough to beat CSS resets such as Tailwind's preflight, low enough that `.lme h1 { ... }` in user CSS wins. Variables `--lme-*` (listed in the docs, Task 17); dark mode via `prefers-color-scheme` and `data-theme` on an ancestor. The test page reads query parameters `value`, `radio`, `readonly`, `placeholder`, `lines`, `delay` and exposes `window.editor`.
+- Consumes: `createEditor` (Task 13), `highlight` (Task 14).
+- Produces: `src/style.css` with every rule at the specificity of one class (`.lme ...`): enough to beat CSS resets such as Tailwind's preflight, low enough that `.lme h1 { ... }` in user CSS wins. Variables `--lme-*` (listed in the docs, Task 20), including `--lme-code-*` token colours; dark mode via `prefers-color-scheme` and `data-theme` on an ancestor; styles for `.lme-copy` and `.lme-stream-caret`. The test page reads query parameters `value`, `radio`, `readonly`, `placeholder`, `lines`, `delay`, `highlight`, `copy` and exposes `window.editor` and `window.healMarkdown`.
 
 - [ ] **Step 1: Install Playwright and its browsers**
 
@@ -3789,12 +5620,16 @@ pnpm exec playwright install --with-deps chromium firefox webkit
 //   placeholder=<text> placeholder text
 //   lines=<n>          generate a document of about n lines (performance test)
 //   delay=<ms>         changeDelay
-import { createEditor, type Editor } from '../../src'
+//   highlight=1        colour code blocks with live-md-editor/highlight
+//   copy=0             hide the copy button
+import { createEditor, healMarkdown, type Editor } from '../../src'
+import { highlight } from '../../src/highlight'
 import '../../src/style.css'
 
 declare global {
   interface Window {
     editor: Editor
+    healMarkdown: typeof healMarkdown
   }
 }
 
@@ -3819,11 +5654,14 @@ window.editor = createEditor({
   editable: params.get('readonly') !== '1',
   extensions: { radio: params.get('radio') === '1' },
   changeDelay: Number(params.get('delay') ?? 0),
+  highlight: params.get('highlight') === '1' ? highlight : undefined,
+  copyButton: params.get('copy') !== '0',
   ariaLabel: 'Test editor',
   onChange: (markdown) => {
     output.textContent = markdown
   },
 })
+window.healMarkdown = healMarkdown
 output.textContent = lines ? '' : window.editor.getMarkdown()
 ````
 
@@ -3941,12 +5779,111 @@ test('default theme styles headings, placeholder and code language', async ({ pa
 })
 ````
 
+`e2e/ai.spec.ts` (streaming, highlighting and the copy button in real browsers):
+
+````ts
+import { expect, test, type Page } from '@playwright/test'
+
+const editor = (page: Page) => page.getByRole('textbox', { name: 'Test editor' })
+const markdown = (page: Page) => page.locator('#markdown')
+
+const answer = [
+  '## Plan',
+  '',
+  'Use **streaming** with `fetch` and read [the docs](https://example.com).',
+  '',
+  '- [x] Parse',
+  '- [ ] Render',
+  '',
+  '```ts',
+  'const answer = 42',
+  '```',
+].join('\n')
+
+test('a streamed answer renders formatted as it arrives and ends exact', async ({ page }) => {
+  await page.goto('/')
+  const frames = await page.evaluate(async (text) => {
+    const writer = window.editor.stream()
+    const seen: { busy: boolean; caret: boolean; raw: boolean }[] = []
+    for (let i = 0; i < text.length; i += 3) {
+      writer.write(text.slice(i, i + 3))
+      await new Promise(requestAnimationFrame)
+      const root = window.editor.view.dom
+      const visible = [...root.querySelectorAll('p, h2, li')].map((el) => el.textContent).join('\n')
+      seen.push({
+        busy: root.getAttribute('aria-busy') === 'true',
+        caret: !!root.querySelector('.lme-stream-caret'),
+        raw: /\*\*|\]\(|`/.test(visible),
+      })
+    }
+    writer.end()
+    return seen
+  }, answer)
+  expect(frames.every((frame) => frame.busy && frame.caret && !frame.raw)).toBe(true)
+  await expect(markdown(page)).toHaveText(answer)
+  await expect(editor(page)).not.toHaveAttribute('aria-busy', 'true')
+  await expect(editor(page).locator('.lme-stream-caret')).toHaveCount(0)
+})
+
+test('auto-scroll keeps the newest text in view', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 400 })
+  await page.goto('/')
+  const caretVisible = await page.evaluate(async () => {
+    const writer = window.editor.stream()
+    for (let i = 0; i < 80; i++) {
+      writer.write(`Paragraph number ${i} of a long answer.\n\n`)
+      await new Promise(requestAnimationFrame)
+    }
+    const caret = window.editor.view.dom.querySelector('.lme-stream-caret')!.getBoundingClientRect()
+    writer.end()
+    return caret.bottom <= window.innerHeight && caret.top >= 0
+  })
+  expect(caretVisible).toBe(true)
+})
+
+test('code blocks are highlighted once their language loads', async ({ page }) => {
+  await page.goto(
+    `/?${new URLSearchParams({ highlight: '1', value: '```ts\nconst answer: number = 42\n```' })}`,
+  )
+  await expect(editor(page).locator('pre .hljs-keyword').first()).toHaveText('const')
+  const color = await editor(page)
+    .locator('pre .hljs-keyword')
+    .first()
+    .evaluate((el) => getComputedStyle(el).color)
+  const plain = await editor(page)
+    .locator('pre code')
+    .evaluate((el) => getComputedStyle(el).color)
+  expect(color).not.toBe(plain)
+})
+
+test('the copy button copies the code', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Only Chromium lets tests read the clipboard')
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.goto(`/?${new URLSearchParams({ value: '```ts\nconst a = 1\nconst b = 2\n```' })}`)
+  await editor(page).locator('pre').hover()
+  const button = editor(page).getByRole('button', { name: 'Copy code' })
+  await expect(button).toBeVisible()
+  await button.click()
+  await expect(editor(page).getByRole('button', { name: 'Copied' })).toBeVisible()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('const a = 1\nconst b = 2')
+})
+
+test('the copy button is reachable by keyboard', async ({ page, browserName }) => {
+  // Safari only moves focus to buttons with Tab when the user enables
+  // "Press Tab to highlight each item" (Option+Tab otherwise); WebKit copies that.
+  test.skip(browserName === 'webkit', 'Safari does not Tab to buttons by default')
+  await page.goto(`/?${new URLSearchParams({ value: '```\nx\n```', readonly: '1' })}`)
+  await page.keyboard.press('Tab')
+  await expect(editor(page).getByRole('button', { name: 'Copy code' })).toBeFocused()
+})
+````
+
 - [ ] **Step 5: Run them to verify the theme test fails**
 
 Create an empty `src/style.css` first so the test page loads: `touch src/style.css`.
 
 Run: `pnpm exec playwright test --project=chromium`
-Expected: 6 pass, 1 FAIL: `default theme styles headings, placeholder and code language` (no placeholder content, headings the same size as text).
+Expected: 10 pass, 2 FAIL: `default theme styles headings, placeholder and code language` (no placeholder content, headings the same size as text) and `code blocks are highlighted once their language loads` (tokens have no colour yet).
 
 - [ ] **Step 6: Write the theme**
 
@@ -3983,6 +5920,16 @@ Expected: 6 pass, 1 FAIL: `default theme styles headings, placeholder and code l
   --lme-radius: 6px;
   --lme-block-gap: 0.75em;
   --lme-done-decoration: none;
+  --lme-code-keyword: #cf222e;
+  --lme-code-string: #0a3069;
+  --lme-code-comment: #59636e;
+  --lme-code-number: #0550ae;
+  --lme-code-function: #8250df;
+  --lme-code-type: #953800;
+  --lme-code-property: #0550ae;
+  --lme-code-tag: #116329;
+  --lme-code-inserted: #116329;
+  --lme-code-deleted: #82071e;
   color-scheme: light;
 }
 
@@ -3996,6 +5943,16 @@ Expected: 6 pass, 1 FAIL: `default theme styles headings, placeholder and code l
     --lme-code-bg: #151b23;
     --lme-quote-border: #3d444d;
     --lme-selected-cell: rgb(68 147 248 / 20%);
+    --lme-code-keyword: #ff7b72;
+    --lme-code-string: #a5d6ff;
+    --lme-code-comment: #9198a1;
+    --lme-code-number: #79c0ff;
+    --lme-code-function: #d2a8ff;
+    --lme-code-type: #ffa657;
+    --lme-code-property: #79c0ff;
+    --lme-code-tag: #7ee787;
+    --lme-code-inserted: #aff5b4;
+    --lme-code-deleted: #ffdcd7;
     color-scheme: dark;
   }
 }
@@ -4009,6 +5966,16 @@ Expected: 6 pass, 1 FAIL: `default theme styles headings, placeholder and code l
   --lme-code-bg: #f6f8fa;
   --lme-quote-border: #d1d9e0;
   --lme-selected-cell: rgb(9 105 218 / 12%);
+  --lme-code-keyword: #cf222e;
+  --lme-code-string: #0a3069;
+  --lme-code-comment: #59636e;
+  --lme-code-number: #0550ae;
+  --lme-code-function: #8250df;
+  --lme-code-type: #953800;
+  --lme-code-property: #0550ae;
+  --lme-code-tag: #116329;
+  --lme-code-inserted: #116329;
+  --lme-code-deleted: #82071e;
   color-scheme: light;
 }
 
@@ -4021,6 +5988,16 @@ Expected: 6 pass, 1 FAIL: `default theme styles headings, placeholder and code l
   --lme-code-bg: #151b23;
   --lme-quote-border: #3d444d;
   --lme-selected-cell: rgb(68 147 248 / 20%);
+  --lme-code-keyword: #ff7b72;
+  --lme-code-string: #a5d6ff;
+  --lme-code-comment: #9198a1;
+  --lme-code-number: #79c0ff;
+  --lme-code-function: #d2a8ff;
+  --lme-code-type: #ffa657;
+  --lme-code-property: #79c0ff;
+  --lme-code-tag: #7ee787;
+  --lme-code-inserted: #aff5b4;
+  --lme-code-deleted: #ffdcd7;
   color-scheme: dark;
 }
 
@@ -4115,7 +6092,7 @@ Expected: 6 pass, 1 FAIL: `default theme styles headings, placeholder and code l
   content: attr(data-language);
   position: absolute;
   top: 0.4em;
-  right: 0.7em;
+  right: 3em;
   font-family: var(--lme-font);
   font-size: 0.75em;
   color: var(--lme-muted);
@@ -4233,6 +6210,118 @@ Expected: 6 pass, 1 FAIL: `default theme styles headings, placeholder and code l
   pointer-events: none;
 }
 
+/* Syntax highlighting (class names from highlight.js). */
+.lme
+  :where(.hljs-keyword, .hljs-doctag, .hljs-template-tag, .hljs-template-variable, .hljs-variable.language_) {
+  color: var(--lme-code-keyword);
+}
+
+.lme :where(.hljs-string, .hljs-regexp, .hljs-meta .hljs-string) {
+  color: var(--lme-code-string);
+}
+
+.lme :where(.hljs-comment, .hljs-quote) {
+  color: var(--lme-code-comment);
+  font-style: italic;
+}
+
+.lme :where(.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet) {
+  color: var(--lme-code-number);
+}
+
+.lme :where(.hljs-title, .hljs-title.function_, .hljs-section) {
+  color: var(--lme-code-function);
+}
+
+.lme :where(.hljs-type, .hljs-title.class_, .hljs-built_in) {
+  color: var(--lme-code-type);
+}
+
+.lme
+  :where(
+    .hljs-attr,
+    .hljs-attribute,
+    .hljs-property,
+    .hljs-meta,
+    .hljs-variable,
+    .hljs-selector-class,
+    .hljs-selector-id
+  ) {
+  color: var(--lme-code-property);
+}
+
+.lme :where(.hljs-name, .hljs-tag, .hljs-selector-tag) {
+  color: var(--lme-code-tag);
+}
+
+.lme :where(.hljs-addition) {
+  color: var(--lme-code-inserted);
+}
+
+.lme :where(.hljs-deletion) {
+  color: var(--lme-code-deleted);
+}
+
+/* Copy button in the corner of code blocks. */
+.lme :where(.lme-copy) {
+  position: absolute;
+  top: 0.45em;
+  right: 0.45em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2em;
+  height: 2em;
+  padding: 0;
+  border: 1px solid var(--lme-border);
+  border-radius: calc(var(--lme-radius) - 1px);
+  background: var(--lme-code-bg);
+  color: var(--lme-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.lme :where(.lme-copy svg) {
+  width: 1.1em;
+  height: 1.1em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.lme :where(pre:hover .lme-copy, .lme-copy:focus-visible, .lme-copy[data-copied='true']) {
+  opacity: 1;
+}
+
+.lme :where(.lme-copy:hover) {
+  color: var(--lme-text);
+}
+
+.lme :where(.lme-copy[data-copied='true']) {
+  color: var(--lme-accent);
+}
+
+@media (hover: none) {
+  .lme :where(.lme-copy) {
+    opacity: 1;
+  }
+}
+
+/* Streaming: a caret where text arrives. */
+.lme :where(.lme-stream-caret) {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-inline-start: 1px;
+  vertical-align: -0.15em;
+  border-radius: 1px;
+  background: var(--lme-accent);
+  animation: lme-cursor-blink 1s steps(2, start) infinite;
+}
+
 /* Placeholder while the document is empty. */
 .lme :where(.lme-empty)::before {
   content: attr(data-placeholder);
@@ -4291,8 +6380,13 @@ Expected: 6 pass, 1 FAIL: `default theme styles headings, placeholder and code l
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lme :where(.ProseMirror-gapcursor)::after {
+  .lme :where(.ProseMirror-gapcursor)::after,
+  .lme :where(.lme-stream-caret) {
     animation: none;
+  }
+
+  .lme :where(.lme-copy) {
+    transition: none;
   }
 }
 
@@ -4307,37 +6401,50 @@ Expected: 6 pass, 1 FAIL: `default theme styles headings, placeholder and code l
 - [ ] **Step 7: Run all browser projects**
 
 Run: `pnpm test:e2e`
-Expected: 28 tests pass (7 each in chromium, firefox, webkit, mobile).
+Expected: 45 tests pass and 3 are skipped (12 in chromium and mobile; firefox skips the clipboard test; webkit skips the clipboard test and the keyboard Tab test, because Safari does not Tab to buttons by default).
 
-Known local issue: on very new macOS releases Playwright's Firefox build can fail to launch (`Failed to launch the browser process`, before any page loads). That is an environment problem, not a test failure; CI runs Firefox on Linux (Task 19). If it happens, run `pnpm exec playwright test --project=chromium --project=webkit --project=mobile` locally and note it in the task report.
+Known local issue: on very new macOS releases Playwright's Firefox build can fail to launch (`Failed to launch the browser process`, before any page loads). That is an environment problem, not a test failure; CI runs Firefox on Linux (Task 22). If it happens, run `pnpm exec playwright test --project=chromium --project=webkit --project=mobile` locally (expected: 34 pass, 2 skipped) and note it in the task report.
 
 - [ ] **Step 8: Look at it**
 
-Run `pnpm dev`, open `http://localhost:4173/?value=%23%20Title%0A%0A-%20%5B%20%5D%20task%0A%0A%3E%20quote`, and check in light and dark mode (toggle the OS setting): a large heading, a checkbox aligned with its text, a quote bar. Stop the server.
+Run `pnpm dev`, open `http://localhost:4173/?value=%23%20Title%0A%0A-%20%5B%20%5D%20task%0A%0A%3E%20quote`, and check in light and dark mode (toggle the OS setting): a large heading, a checkbox aligned with its text, a quote bar. Then open `http://localhost:4173/?highlight=1` and run this in the browser console to watch a stream:
+
+```js
+const w = editor.stream(); const t = '## Hi
+
+Some **bold** and:
+
+```ts
+const a = 1
+```'
+for (let i = 0; i < t.length; i++) setTimeout(() => { w.write(t[i]); if (i === t.length - 1) w.end() }, i * 40)
+```
+
+Check: no raw `**` or backticks appear, the caret blinks at the end, the code turns coloured, and hovering the code block shows the copy button. Stop the server.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add package.json pnpm-lock.yaml src/style.css e2e/fixture e2e/editor.spec.ts playwright.config.ts
+git add package.json pnpm-lock.yaml src/style.css e2e/fixture e2e/editor.spec.ts e2e/ai.spec.ts playwright.config.ts
 git commit -m "feat: default theme and browser tests" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 14: Performance check
+### Task 17: Performance checks
 
 **Files:**
 - Test: `e2e/perf.spec.ts`
 
 **Interfaces:**
-- Consumes: the test page (Task 13) with `?lines=10000&delay=300`.
-- Produces: `pnpm test:perf`, which fails if the median keystroke on a 10,000-line document takes 16 ms (one frame) or more. Measured on the prototype: about 2 ms median, 2.7 ms p95.
+- Consumes: the test page (Task 16) with `?lines=10000&delay=300`, and `editor.stream()` (Task 13).
+- Produces: `pnpm test:perf`, which fails if the median keystroke on a 10,000-line document takes 16 ms (one frame) or more, or if streaming a 2,000-line answer takes 8 ms or more per frame (median overall, and median of the last 100 frames, which proves the cost stays flat as the answer grows). Measured on the prototype: typing about 3 ms median; streaming about 0.4 ms median, 0.5 ms for the last 100 frames.
 
 - [ ] **Step 1: Write the test**
 
 `e2e/perf.spec.ts`:
 
-```ts
+````ts
 import { expect, test } from '@playwright/test'
 
 // Keystroke cost on a 10,000-line document. Each dispatch is one typed
@@ -4362,12 +6469,48 @@ test('typing stays under one frame on a 10,000-line document', async ({ page }) 
   console.log(`10k lines: median ${median.toFixed(2)} ms, p95 ${p95.toFixed(2)} ms per keystroke`)
   expect(median).toBeLessThan(16)
 })
-```
+
+// Frame cost while streaming a long AI answer: each flush renders one frame's
+// worth of new text. Blocks that can no longer change are frozen, so the cost
+// stays flat as the answer grows instead of rising with its length.
+test('streaming a 2,000-line answer stays within a frame', async ({ page }) => {
+  await page.goto('/')
+  await page.waitForFunction(() => window.editor !== undefined)
+  const { median, p95, last } = await page.evaluate(() => {
+    const block =
+      '## Step\n\nSome *text* with **bold**, `code` and a [link](https://x.com).\n\n' +
+      '- [ ] one\n- [x] two\n\n```ts\nconst a = 1\n```\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n'
+    let text = ''
+    while (text.split('\n').length < 2000) text += block
+    const writer = window.editor.stream({ autoScroll: false })
+    const samples: number[] = []
+    for (let i = 0; i < text.length; i += 40) {
+      writer.write(text.slice(i, i + 40))
+      const start = performance.now()
+      writer.flush()
+      samples.push(performance.now() - start)
+    }
+    writer.end()
+    const lastHundred = samples.slice(-100).sort((a, b) => a - b)
+    const sorted = [...samples].sort((a, b) => a - b)
+    return {
+      median: sorted[Math.floor(sorted.length / 2)]!,
+      p95: sorted[Math.floor(sorted.length * 0.95)]!,
+      last: lastHundred[Math.floor(lastHundred.length / 2)]!,
+    }
+  })
+  console.log(
+    `stream 2k lines: median ${median.toFixed(2)} ms, p95 ${p95.toFixed(2)} ms, median of last 100 frames ${last.toFixed(2)} ms`,
+  )
+  expect(median).toBeLessThan(8)
+  expect(last).toBeLessThan(8)
+})
+````
 
 - [ ] **Step 2: Run it**
 
 Run: `pnpm test:perf`
-Expected: PASS, printing a line like `10k lines: median 2.00 ms, p95 2.70 ms per keystroke`.
+Expected: 2 tests PASS, printing lines like `10k lines: median 3.10 ms, p95 3.60 ms per keystroke` and `stream 2k lines: median 0.40 ms, p95 0.80 ms, median of last 100 frames 0.50 ms`.
 
 - [ ] **Step 3: Prove it can fail**
 
@@ -4377,19 +6520,19 @@ Temporarily change `toBeLessThan(16)` to `toBeLessThan(0.01)`, run `pnpm test:pe
 
 ```bash
 git add e2e/perf.spec.ts
-git commit -m "test: keystroke performance on a 10,000-line document" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "test: typing and streaming performance on large documents" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 15: Package build, size budget and export checks
+### Task 18: Package build, size budgets and export checks
 
 **Files:**
 - Create: `tsup.config.ts`, `.size-limit.json`
 
 **Interfaces:**
-- Consumes: `src/index.ts`, `src/react/index.tsx`, `src/style.css`, `shims/`.
-- Produces: `dist/index.{js,cjs,d.ts,d.cts}`, `dist/react.{js,cjs,d.ts,d.cts}` (starting with `'use client';`, importing the core from `live-md-editor`, never bundling it), `dist/style.css`. `pnpm size`, `pnpm check:package`, `pnpm check`.
+- Consumes: `src/index.ts`, `src/react/index.tsx`, `src/highlight/index.ts`, `src/style.css`, `shims/`.
+- Produces: `dist/index.{js,cjs,d.ts,d.cts}`, `dist/react.{js,cjs,d.ts,d.cts}` (starting with `'use client';`, importing the core from `live-md-editor`, never bundling it), `dist/highlight.{js,cjs,d.ts,d.cts}` (keeping `lowlight` and each `highlight.js/lib/languages/*` as imports, so apps load languages on demand), `dist/style.css`. `pnpm size`, `pnpm check:package`, `pnpm check`.
 
 - [ ] **Step 1: Install build and check tools**
 
@@ -4425,6 +6568,13 @@ export default defineConfig([
   },
   {
     ...shared,
+    entry: { highlight: 'src/highlight/index.ts' },
+    // lowlight and highlight.js are dependencies, so they stay imports and each
+    // language remains a separate file the app's bundler loads on demand.
+    external: ['live-md-editor'],
+  },
+  {
+    ...shared,
     entry: { react: 'src/react/index.tsx' },
     // The wrapper must use the same core instance as the app, never a copy.
     external: ['live-md-editor', 'react', 'react-dom'],
@@ -4443,7 +6593,7 @@ export default defineConfig([
     "name": "core: createEditor",
     "path": "dist/index.js",
     "import": "{ createEditor }",
-    "limit": "110 kB",
+    "limit": "115 kB",
     "gzip": true
   },
   {
@@ -4451,14 +6601,22 @@ export default defineConfig([
     "path": "dist/react.js",
     "import": "{ LiveMarkdownEditor }",
     "ignore": ["react", "react-dom"],
-    "limit": "112 kB",
+    "limit": "116 kB",
     "gzip": true
+  },
+  {
+    "name": "highlight add-on (first load; each language is a separate small file)",
+    "path": "dist/highlight.js",
+    "import": "{ highlight }",
+    "limit": "15 kB",
+    "gzip": true,
+    "entry": ["index"]
   },
   {
     "name": "style.css",
     "path": "dist/style.css",
     "rolldown": false,
-    "limit": "3 kB",
+    "limit": "3.5 kB",
     "gzip": true
   }
 ]
@@ -4473,12 +6631,14 @@ ls dist
 head -c 120 dist/react.js; echo
 grep -c "decode-data-html" dist/index.js || true
 ```
-Expected: `dist` holds `index.js index.cjs index.d.ts index.d.cts react.js react.cjs react.d.ts react.d.cts style.css` (+ source maps); `dist/react.js` starts with `'use client';` then `import ... from 'live-md-editor'`; the grep prints `0` (the entity table is gone).
+Then run `grep -c "import(" dist/highlight.js`.
+
+Expected: `dist` holds `index.*`, `react.*` and `highlight.*` in `.js .cjs .d.ts .d.cts` (+ source maps) and `style.css`; `dist/react.js` starts with `'use client';` then `import ... from 'live-md-editor'`; the first grep prints `0` (the entity table is gone); the second prints `30` (one lazy import per language).
 
 - [ ] **Step 5: Check size and exports**
 
 Run: `pnpm size && pnpm check:package`
-Expected: core about 106.5 kB gzipped (limit 110 kB), react about 106.8 kB (limit 112 kB), style.css about 2.2 kB (limit 3 kB); publint and attw report no problems.
+Expected: core about 110.1 kB gzipped (limit 115 kB), react about 110.5 kB (limit 116 kB), highlight add-on first load about 9.6 kB (limit 15 kB; the `entry` option counts only what loads up front, not the 30 language files), style.css about 3.0 kB (limit 3.5 kB); publint and attw report no problems.
 
 - [ ] **Step 6: Run the full check**
 
@@ -4494,15 +6654,15 @@ git commit -m "build: package build with size budget and export checks" -m "Co-A
 
 ---
 
-### Task 16: Examples
+### Task 19: Examples
 
 **Files:**
-- Create: `examples/nextjs/package.json`, `examples/nextjs/tsconfig.json`, `examples/nextjs/app/layout.tsx`, `examples/nextjs/app/globals.css`, `examples/nextjs/app/page.tsx`, `examples/nextjs/app/note-editor.tsx`
+- Create: `examples/nextjs/package.json`, `examples/nextjs/tsconfig.json`, `examples/nextjs/lib/simulate.ts`, `examples/nextjs/app/layout.tsx`, `examples/nextjs/app/globals.css`, `examples/nextjs/app/page.tsx`, `examples/nextjs/app/note-editor.tsx`, `examples/nextjs/app/ai/page.tsx`, `examples/nextjs/app/api/chat/route.ts`
 - Create: `examples/vanilla/package.json`, `examples/vanilla/index.html`, `examples/vanilla/main.js`
 
 **Interfaces:**
 - Consumes: the built package through `"live-md-editor": "workspace:*"` (run `pnpm build` first).
-- Produces: two runnable apps. The Next.js one shows the recommended React pattern: a state setter as `ref` so a toolbar re-renders when the editor mounts.
+- Produces: two runnable apps. The Next.js one shows the recommended React pattern (a state setter as `ref` so a toolbar re-renders when the editor mounts), an "AI: continue" button that streams at the cursor, and an `/ai` page that streams an answer through the `streaming` prop: from a simulated source (no API key needed) or from Claude through `app/api/chat/route.ts`.
 
 - [ ] **Step 1: Create the Next.js example**
 
@@ -4518,6 +6678,7 @@ git commit -m "build: package build with size budget and export checks" -m "Co-A
     "start": "next start"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.130.0",
     "live-md-editor": "workspace:*",
     "next": "^16.3.8",
     "react": "^19.3.0",
@@ -4618,6 +6779,42 @@ main {
   color: white;
 }
 
+.ask {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.ask input {
+  flex: 1 1 260px;
+  font: inherit;
+  padding: 6px 10px;
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+}
+
+.ask button {
+  font: inherit;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #d1d9e0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ask button[type='submit'] {
+  background: #0969da;
+  border-color: #0969da;
+  color: white;
+}
+
+.ask button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .editor {
   min-height: 240px;
   border: 1px solid #d1d9e0;
@@ -4651,6 +6848,9 @@ export default function Page() {
   return (
     <main>
       <h1>live-md-editor + Next.js</h1>
+      <p>
+        <a href="/ai">See an AI answer stream in live</a>
+      </p>
       <NoteEditor initial={initial} />
     </main>
   )
@@ -4664,7 +6864,9 @@ export default function Page() {
 
 import { useEffect, useState } from 'react'
 import type { ActiveName, Editor } from 'live-md-editor'
+import { highlight } from 'live-md-editor/highlight'
 import { LiveMarkdownEditor } from 'live-md-editor/react'
+import { simulateTokens } from '../lib/simulate'
 
 const buttons: { label: string; active: ActiveName; level?: number; run: (editor: Editor) => boolean }[] = [
   { label: 'Bold', active: 'bold', run: (editor) => editor.commands.toggleBold() },
@@ -4699,6 +6901,19 @@ export function NoteEditor({ initial }: { initial: string }) {
             {button.label}
           </button>
         ))}
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() =>
+            // Streams at the cursor, like an AI "continue writing" command.
+            void editor?.streamFrom(
+              simulateTokens(' Here is **more text**, streamed at the cursor as if an AI wrote it.'),
+              { at: 'cursor' },
+            )
+          }
+        >
+          AI: continue
+        </button>
       </div>
       <LiveMarkdownEditor
         ref={setEditor}
@@ -4707,10 +6922,199 @@ export function NoteEditor({ initial }: { initial: string }) {
         onChange={setMarkdown}
         placeholder="Write something..."
         ariaLabel="Note"
+        highlight={highlight}
       />
       <h2>Markdown</h2>
       <pre>{markdown}</pre>
     </>
+  )
+}
+```
+
+`examples/nextjs/lib/simulate.ts` (a fake token stream, a response reader and a sample answer):
+
+```ts
+/**
+ * Yields `text` in small, uneven pieces with short pauses, the way a model
+ * streams tokens. Lets the demo run without an API key.
+ */
+export async function* simulateTokens(text: string): AsyncGenerator<string> {
+  let i = 0
+  while (i < text.length) {
+    const size = 2 + Math.floor(Math.random() * 6)
+    yield text.slice(i, i + size)
+    i += size
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+/** Reads a streamed text response body chunk by chunk. */
+export async function* readText(response: Response): AsyncGenerator<string> {
+  if (!response.ok || !response.body) throw new Error(`Request failed: ${response.status}`)
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) return
+    yield value
+  }
+}
+
+export const sampleAnswer = `## Adding auth to a Next.js app
+
+Here is a **minimal** setup using route handlers and an HTTP-only cookie.
+
+1. Install the helper:
+
+   \`\`\`bash
+   npm install jose
+   \`\`\`
+
+2. Create a session token when the user signs in:
+
+\`\`\`ts
+import { SignJWT } from 'jose'
+
+export async function createSession(userId: string) {
+  const secret = new TextEncoder().encode(process.env.AUTH_SECRET)
+  return new SignJWT({ userId }).setProtectedHeader({ alg: 'HS256' }).setExpirationTime('7d').sign(secret)
+}
+\`\`\`
+
+| Cookie option | Value | Why |
+| --- | --- | --- |
+| \`httpOnly\` | \`true\` | Scripts cannot read it |
+| \`secure\` | \`true\` | HTTPS only |
+| \`sameSite\` | \`lax\` | Blocks most CSRF |
+
+- [x] Sessions signed
+- [ ] Add rate limiting
+
+> **Tip:** rotate \`AUTH_SECRET\` if it ever leaks. See [the jose docs](https://github.com/panva/jose).
+`
+```
+
+`examples/nextjs/app/api/chat/route.ts` (streams Claude's answer as plain text; credentials come from `ANTHROPIC_API_KEY` or an `ant auth login` profile):
+
+```ts
+import Anthropic from '@anthropic-ai/sdk'
+
+const client = new Anthropic()
+
+/**
+ * Streams Claude's answer to `prompt` as plain text, ready for
+ * `editor.streamFrom(response.body)` or a growing `value`.
+ * Credentials come from the environment (ANTHROPIC_API_KEY, or an
+ * `ant auth login` profile).
+ */
+export async function POST(request: Request) {
+  const { prompt } = (await request.json()) as { prompt: string }
+  const stream = client.beta.messages.stream({
+    model: 'claude-opus-5-5',
+    max_tokens: 64000,
+    // If the model declines, the API retries on a recommended fallback model
+    // within the same stream; text that already arrived is kept.
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    messages: [{ role: 'user', content: prompt }],
+  })
+  const encoder = new TextEncoder()
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      stream.on('text', (text) => controller.enqueue(encoder.encode(text)))
+      stream.finalMessage().then(
+        (message) => {
+          if (message.stop_reason === 'refusal') {
+            controller.enqueue(encoder.encode('\n\n*The model declined to answer this request.*'))
+          }
+          controller.close()
+        },
+        (error: unknown) => controller.error(error),
+      )
+    },
+    cancel() {
+      stream.abort()
+    },
+  })
+  return new Response(body, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+}
+```
+
+`examples/nextjs/app/ai/page.tsx`:
+
+```tsx
+'use client'
+
+import { useRef, useState } from 'react'
+import { highlight } from 'live-md-editor/highlight'
+import { LiveMarkdownEditor } from 'live-md-editor/react'
+import { readText, sampleAnswer, simulateTokens } from '../../lib/simulate'
+
+export default function AiPage() {
+  const [prompt, setPrompt] = useState('How do I add auth to a Next.js app?')
+  const [answer, setAnswer] = useState('')
+  const [streaming, setStreaming] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const stop = useRef<AbortController | null>(null)
+
+  // The whole integration: grow `answer` as text arrives and keep
+  // `streaming` true meanwhile. The editor renders it formatted, live.
+  async function run(source: (signal: AbortSignal) => AsyncIterable<string>) {
+    stop.current = new AbortController()
+    setAnswer('')
+    setError(null)
+    setStreaming(true)
+    try {
+      for await (const chunk of source(stop.current.signal)) setAnswer((text) => text + chunk)
+    } catch (caught) {
+      if (!stop.current.signal.aborted) setError(caught instanceof Error ? caught.message : String(caught))
+    } finally {
+      setStreaming(false)
+    }
+  }
+
+  return (
+    <main>
+      <h1>AI answers, rendered live</h1>
+      <form
+        className="ask"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void run(async function* (signal) {
+            const response = await fetch('/api/chat', {
+              method: 'POST',
+              body: JSON.stringify({ prompt }),
+              signal,
+            })
+            yield* readText(response)
+          })
+        }}
+      >
+        <input value={prompt} onChange={(event) => setPrompt(event.target.value)} aria-label="Prompt" />
+        <button type="submit" disabled={streaming}>
+          Ask Claude
+        </button>
+        <button
+          type="button"
+          disabled={streaming}
+          onClick={() => void run(() => simulateTokens(sampleAnswer))}
+        >
+          Simulated answer
+        </button>
+        <button type="button" disabled={!streaming} onClick={() => stop.current?.abort()}>
+          Stop
+        </button>
+      </form>
+      {error && <p role="alert">{error}</p>}
+      <LiveMarkdownEditor
+        className="editor"
+        value={answer}
+        streaming={streaming}
+        editable={!streaming}
+        highlight={highlight}
+        placeholder="The answer appears here. Once it is done, you can edit it."
+        ariaLabel="Answer"
+      />
+    </main>
   )
 }
 ```
@@ -4814,11 +7218,11 @@ pnpm install
 pnpm build
 pnpm --filter "./examples/*" build
 ```
-Expected: the vanilla build prints its bundle (about 110 kB gzipped JS); the Next.js build ends with the route table showing `/` as static.
+Expected: the vanilla build prints its bundle (about 110 kB gzipped JS); the Next.js build ends with the route table showing `/` and `/ai` as static and `/api/chat` as dynamic.
 
 - [ ] **Step 4: Try the Next.js example in a browser**
 
-Run: `pnpm --filter example-nextjs start` and open `http://localhost:3000`. Select a word, click **Bold**: the word turns bold and the button shows as pressed. Click at the end of the last task, press Enter, type: a new unchecked task appears and the markdown below updates. Stop the server.
+Run: `pnpm --filter example-nextjs start` and open `http://localhost:3000`. Select a word, click **Bold**: the word turns bold and the button shows as pressed. Click at the end of the first paragraph, click **AI: continue**: a sentence with bold text streams in at the cursor and the markdown below updates once it ends. Open `http://localhost:3000/ai` and click **Simulated answer**: a heading, a coloured code block, a table and tasks stream in formatted, with no raw `**` or backticks at any moment; click **Stop** during a second run to check that what arrived stays. If you have Claude credentials set up, **Ask Claude** streams a real answer the same way. Stop the server.
 
 - [ ] **Step 5: Lint**
 
@@ -4834,15 +7238,15 @@ git commit -m "docs: add Next.js and vanilla examples" -m "Co-Authored-By: Claud
 
 ---
 
-### Task 17: Documentation site
+### Task 20: Documentation site
 
 **Files:**
 - Create: `typedoc.json`
 - Create: `docs/.vitepress/config.ts`, `docs/.vitepress/theme/index.ts`, `docs/.vitepress/theme/custom.css`, `docs/.vitepress/theme/LiveExample.vue`, `docs/.vitepress/theme/Playground.vue`
-- Create: `docs/index.md`, `docs/playground.md`, `docs/guide/getting-started.md`, `docs/guide/syntax.md`, `docs/guide/nextjs.md`, `docs/guide/react.md`, `docs/guide/vue.md`, `docs/guide/svelte.md`, `docs/guide/vanilla.md`, `docs/guide/toolbar.md`, `docs/guide/theming.md`, `docs/guide/radio.md`, `docs/guide/performance.md`
+- Create: `docs/index.md`, `docs/playground.md`, `docs/guide/getting-started.md`, `docs/guide/syntax.md`, `docs/guide/nextjs.md`, `docs/guide/react.md`, `docs/guide/vue.md`, `docs/guide/svelte.md`, `docs/guide/vanilla.md`, `docs/guide/ai.md`, `docs/guide/highlighting.md`, `docs/guide/toolbar.md`, `docs/guide/theming.md`, `docs/guide/radio.md`, `docs/guide/performance.md`
 
 **Interfaces:**
-- Consumes: TSDoc comments in `src/index.ts`, `src/editor.ts`, `src/commands/index.ts`, `src/react/index.tsx` (the `@module` tags name the API pages).
+- Consumes: TSDoc comments in `src/index.ts`, `src/editor.ts`, `src/commands/index.ts`, `src/stream/stream.ts`, `src/plugins/highlight.ts`, `src/react/index.tsx`, `src/highlight/index.ts` (the `@module` tags name the API pages). The Claude example in `docs/guide/ai.md` is the same route handler that Task 19 typechecks in a real Next.js build.
 - Produces: `pnpm docs:dev`, `pnpm docs:build` (output `docs/.vitepress/dist`, base path `/live-md-editor/`). `docs/api` is generated and git-ignored. `docs/superpowers` is excluded from the site.
 
 - [ ] **Step 1: Install the docs tooling**
@@ -4887,6 +7291,7 @@ export default defineConfig({
     resolve: {
       alias: {
         'live-md-editor/style.css': path('../../src/style.css'),
+        'live-md-editor/highlight': path('../../src/highlight/index.ts'),
         'live-md-editor': path('../../src/index.ts'),
         entities: path('../../shims/entities.ts'),
         'linkify-it': path('../../shims/linkify-it.ts'),
@@ -4916,6 +7321,13 @@ export default defineConfig({
             { text: 'Vue', link: '/guide/vue' },
             { text: 'Svelte', link: '/guide/svelte' },
             { text: 'Plain HTML', link: '/guide/vanilla' },
+          ],
+        },
+        {
+          text: 'AI',
+          items: [
+            { text: 'AI streaming', link: '/guide/ai' },
+            { text: 'Code highlighting', link: '/guide/highlighting' },
           ],
         },
         {
@@ -5052,6 +7464,7 @@ onBeforeUnmount(() => editor?.destroy())
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { createEditor, type Editor } from 'live-md-editor'
+import { highlight } from 'live-md-editor/highlight'
 
 const initial = `# Welcome to live-md-editor
 
@@ -5069,8 +7482,26 @@ or wrap a word in **double stars**.
 | Ctrl/Cmd + I | Italic |
 `
 
+const aiAnswer = `## Streaming, live
+
+Every token is rendered **as it arrives**: no raw \`**\` or \`###\` on screen.
+
+\`\`\`ts
+const editor = createEditor({ element, highlight })
+await editor.streamFrom(response.body)
+\`\`\`
+
+| Feature | Status |
+| --- | --- |
+| Unfinished syntax repaired | yes |
+| One undo step | yes |
+
+- [x] Try it again with the button above
+`
+
 const host = ref<HTMLElement>()
 const markdown = ref(initial)
+const streaming = ref(false)
 let editor: Editor | undefined
 
 onMounted(() => {
@@ -5078,6 +7509,7 @@ onMounted(() => {
     element: host.value!,
     value: initial,
     extensions: { radio: true },
+    highlight,
     placeholder: 'Start writing...',
     ariaLabel: 'Playground editor',
     onChange: (value) => {
@@ -5086,6 +7518,26 @@ onMounted(() => {
   })
 })
 onBeforeUnmount(() => editor?.destroy())
+
+async function* tokens(text: string) {
+  for (let i = 0; i < text.length;) {
+    const size = 2 + Math.floor(Math.random() * 6)
+    yield text.slice(i, i + size)
+    i += size
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+async function simulate() {
+  if (!editor) return
+  streaming.value = true
+  editor.setMarkdown('')
+  try {
+    markdown.value = await editor.streamFrom(tokens(aiAnswer))
+  } finally {
+    streaming.value = false
+  }
+}
 
 function load(event: Event) {
   const value = (event.target as HTMLTextAreaElement).value
@@ -5097,7 +7549,10 @@ function load(event: Event) {
 <template>
   <div class="playground">
     <section class="lme-demo">
-      <h2>Editor</h2>
+      <div class="bar">
+        <h2>Editor</h2>
+        <button type="button" :disabled="streaming" @click="simulate">Simulate AI answer</button>
+      </div>
       <div ref="host" />
     </section>
     <section class="lme-demo">
@@ -5118,8 +7573,23 @@ function load(event: Event) {
     grid-template-columns: 1fr 1fr;
   }
 }
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.bar button {
+  font-size: 13px;
+  padding: 4px 10px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+}
+.bar button:disabled {
+  opacity: 0.5;
+}
 h2 {
-  margin: 0 0 12px;
+  margin: 0;
   font-size: 14px;
   border: none;
   padding: 0;
@@ -5152,7 +7622,7 @@ layout: home
 hero:
   name: live-md-editor
   text: Edit markdown without seeing markdown
-  tagline: A lightweight WYSIWYG editor that reads and writes plain markdown. Works with Next.js, React, Vue, Svelte or no framework at all.
+  tagline: A lightweight WYSIWYG editor that reads and writes plain markdown, and renders AI answers live as they stream. Works with Next.js, React, Vue, Svelte or no framework at all.
   actions:
     - theme: brand
       text: Get started
@@ -5162,6 +7632,8 @@ hero:
       link: /playground
 
 features:
+  - title: Built for AI answers
+    details: Stream a model's markdown in and it renders formatted as it arrives, with unfinished syntax repaired. Code is highlighted and has a copy button.
   - title: Markdown in, markdown out
     details: The value is a plain markdown string. Save it anywhere. Saving never adds noise, so diffs stay clean.
   - title: Formatted while you type
@@ -5273,10 +7745,13 @@ Mod is Cmd on Mac and Ctrl elsewhere.
 | `editable`         | `boolean`            | `true`   | `false` makes a read-only renderer                                           |
 | `autofocus`        | `boolean`            | `false`  | Focus on mount                                                               |
 | `ariaLabel`        | `string`             |          | Accessible name of the editing area                                          |
+| `highlight`        | `Highlighter`        |          | Colour code blocks. See [code highlighting](./highlighting)                  |
+| `copyButton`       | `boolean`            | `true`   | Copy button on code blocks                                                   |
 | `extensions.radio` | `boolean`            | `false`  | Enable [radio lists](./radio)                                                |
 | `classNames.root`  | `string`             |          | Extra class on the editing area                                              |
 
-The full list of methods and events is in the [API reference](/api/).
+The full list of methods and events is in the [API reference](/api/). To render AI answers as
+they stream, see [AI streaming](./ai).
 
 ## Saving
 
@@ -5463,13 +7938,14 @@ export function App() {
 
 ## Props
 
-| Prop                                                                               | Description                       |
-| ---------------------------------------------------------------------------------- | --------------------------------- |
-| `value` / `defaultValue`                                                           | Controlled or initial markdown    |
-| `onChange`                                                                         | Called with the new markdown      |
-| `editable`                                                                         | Can change at any time            |
-| `className`, `style`                                                               | Applied to the wrapping `<div>`   |
-| `placeholder`, `ariaLabel`, `extensions`, `classNames`, `changeDelay`, `autofocus` | Read once, when the editor mounts |
+| Prop                                                                                                          | Description                                                                 |
+| ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `value` / `defaultValue`                                                                                      | Controlled or initial markdown                                              |
+| `onChange`                                                                                                    | Called with the new markdown                                                |
+| `editable`                                                                                                    | Can change at any time                                                      |
+| `streaming`                                                                                                   | While true, a growing `value` is streamed in live. See [AI streaming](./ai) |
+| `className`, `style`                                                                                          | Applied to the wrapping `<div>`                                             |
+| `placeholder`, `ariaLabel`, `extensions`, `classNames`, `changeDelay`, `highlight`, `copyButton`, `autofocus` | Read once, when the editor mounts                                           |
 
 The `ref` gives you the core [`Editor`](/api/live-md-editor/interfaces/Editor) (or `null` before
 it mounts), with `commands`, `isActive`, `getMarkdown`, `setMarkdown` and `on`.
@@ -5610,6 +8086,244 @@ import 'live-md-editor/style.css'
 To remove the editor, call `editor.destroy()`. It removes only what it added to the element.
 ````
 
+`docs/guide/ai.md`:
+
+````markdown
+# AI streaming
+
+Most AI models answer in markdown. live-md-editor renders that markdown **while it is still
+arriving**, already formatted: headings, lists, tables and code appear as they stream, and raw
+syntax such as `**` or `###` never flashes on screen.
+
+<LiveExample md="## Try it in the playground\n\nThe [playground](../playground) has a **Simulate AI answer** button." />
+
+## Showing an AI reply (React)
+
+AI SDKs usually give you the reply as a string that grows on every render, plus a flag that is
+true while it streams. Pass both:
+
+```tsx
+import { LiveMarkdownEditor } from 'live-md-editor/react'
+import 'live-md-editor/style.css'
+
+export function Answer({ text, streaming }: { text: string; streaming: boolean }) {
+  return <LiveMarkdownEditor value={text} streaming={streaming} editable={!streaming} />
+}
+```
+
+- While `streaming` is true, each longer `value` is streamed in, repaired, and rendered at most
+  once per frame. The editor is read-only and shows a caret where text arrives.
+- When `streaming` turns false, the stream ends: the final markdown is parsed exactly, and the
+  user can edit it (if `editable`).
+- If `value` is replaced instead of extended (a regenerated answer), the stream restarts cleanly.
+
+With the Vercel AI SDK, pass the message's text and `status === 'streaming'`.
+
+## Streaming from any source (no framework)
+
+```ts
+import { createEditor } from 'live-md-editor'
+
+const editor = createEditor({ element, editable: false })
+const response = await fetch('/api/chat', { method: 'POST', body: JSON.stringify({ prompt }) })
+const markdown = await editor.streamFrom(response.body!)
+```
+
+`streamFrom` accepts a `fetch` body, any `ReadableStream` of text or bytes, or any async iterable
+of strings (an SDK stream, an async generator). It resolves with the document's markdown when
+the stream ends. Pass `{ signal }` from an `AbortController` to stop early; what arrived is kept,
+with unfinished syntax closed.
+
+To push chunks yourself, for example from a WebSocket:
+
+```ts
+const writer = editor.stream()
+socket.onmessage = (event) => writer.write(event.data)
+socket.onclose = () => writer.end()
+```
+
+`writer.abort()` stops early and keeps what arrived.
+
+## A Next.js route that streams Claude
+
+```ts
+// app/api/chat/route.ts
+import Anthropic from '@anthropic-ai/sdk'
+
+const client = new Anthropic()
+
+export async function POST(request: Request) {
+  const { prompt } = (await request.json()) as { prompt: string }
+  const stream = client.beta.messages.stream({
+    model: 'claude-opus-5-5',
+    max_tokens: 64000,
+    // If the model declines, the API retries on a recommended fallback model
+    // within the same stream; text that already arrived is kept.
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    messages: [{ role: 'user', content: prompt }],
+  })
+  const encoder = new TextEncoder()
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      stream.on('text', (text) => controller.enqueue(encoder.encode(text)))
+      stream.finalMessage().then(
+        (message) => {
+          if (message.stop_reason === 'refusal') {
+            controller.enqueue(encoder.encode('\n\n*The model declined to answer this request.*'))
+          }
+          controller.close()
+        },
+        (error: unknown) => controller.error(error),
+      )
+    },
+    cancel() {
+      stream.abort()
+    },
+  })
+  return new Response(body, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+}
+```
+
+On the page, grow a string from the response and pass it to the editor:
+
+```tsx
+const [answer, setAnswer] = useState('')
+const [streaming, setStreaming] = useState(false)
+
+async function ask(prompt: string) {
+  setAnswer('')
+  setStreaming(true)
+  try {
+    const response = await fetch('/api/chat', { method: 'POST', body: JSON.stringify({ prompt }) })
+    const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      setAnswer((text) => text + value)
+    }
+  } finally {
+    setStreaming(false)
+  }
+}
+
+return <LiveMarkdownEditor value={answer} streaming={streaming} editable={!streaming} />
+```
+
+The full example, including a simulated answer that needs no API key, is in
+[`examples/nextjs`](https://github.com/salvatorecastellitti/live-md-editor/tree/main/examples/nextjs).
+
+## AI writing into a document
+
+For "continue writing" or "rewrite this" commands, stream at the cursor instead of the end:
+
+```ts
+await editor.streamFrom(response.body!, { at: 'cursor' })
+```
+
+- The text replaces the selection (or goes at the cursor) and is inserted exactly the way a paste
+  would be: a paragraph at either edge merges into the surrounding text, while headings, lists,
+  code and tables stay whole blocks.
+- The rest of the document is untouched, and the whole insertion is **one undo step**.
+- `onChange` fires once, when the stream ends, which is a good moment to save.
+
+## What happens to unfinished markdown
+
+While text streams in, the end of the document is often incomplete. The editor shows it the way
+it will look once finished:
+
+| Arrived so far                           | Shown as              |
+| ---------------------------------------- | --------------------- |
+| `Some **bol`                             | Some **bol**          |
+| an open code fence                       | a code block, growing |
+| `see [the docs](https://ex`              | see the docs          |
+| `![a cat](https://x`                     | nothing yet           |
+| a table header without its delimiter row | nothing yet           |
+
+The same repair is exported as `healMarkdown(text)` if you render streaming markdown elsewhere.
+
+## Events and state
+
+| API                                        | Use                                      |
+| ------------------------------------------ | ---------------------------------------- |
+| `editor.isStreaming()`                     | Whether a stream is running              |
+| `editor.on('streamStart', fn)`             | Disable your send button, show a spinner |
+| `editor.on('streamEnd', fn)`               | Receives the final markdown              |
+| `.lme-streaming` class, `aria-busy="true"` | Style or announce the busy state         |
+
+## Performance
+
+Blocks that can no longer change are frozen, so each frame only re-parses the growing end of
+the answer. In our browser test, streaming a 2,000-line answer costs well under a millisecond
+per frame, and the cost stays flat as the answer grows.
+````
+
+`docs/guide/highlighting.md`:
+
+````markdown
+# Code highlighting
+
+AI answers are full of code. Colour it with the highlighting add-on:
+
+```ts
+import { createEditor } from 'live-md-editor'
+import { highlight } from 'live-md-editor/highlight'
+
+createEditor({ element, highlight })
+```
+
+```tsx
+<LiveMarkdownEditor highlight={highlight} />
+```
+
+- It is built on [highlight.js](https://highlightjs.org) (through lowlight) and knows about 30
+  common languages plus their usual aliases (`ts`, `py`, `sh`, `yml`...).
+- **Languages load on demand.** The add-on itself is about 10 KB gzipped; each language is a
+  separate small file (1 to 5 KB) fetched the first time a code block uses it.
+- Only code blocks with a language are coloured. Detecting the language automatically would be
+  slow and often wrong.
+- Colours are decorations: the text stays plain, so editing, copying and the markdown output are
+  unaffected. While an answer streams in, its code block is re-coloured as it grows.
+
+## Other languages
+
+```ts
+import haskell from 'highlight.js/lib/languages/haskell'
+import { registerLanguage } from 'live-md-editor/highlight'
+
+registerLanguage('haskell', haskell, ['hs'])
+```
+
+## Colours
+
+The default theme maps highlight.js classes to CSS variables, with light and dark values:
+`--lme-code-keyword`, `--lme-code-string`, `--lme-code-comment`, `--lme-code-number`,
+`--lme-code-function`, `--lme-code-type`, `--lme-code-property`, `--lme-code-tag`,
+`--lme-code-inserted`, `--lme-code-deleted`. See [Theming](./theming).
+
+## Using Shiki or another highlighter
+
+`highlight` accepts any function that returns token ranges for a code block, or a promise of
+them:
+
+```ts
+import type { Highlighter } from 'live-md-editor'
+
+const myHighlighter: Highlighter = async (code, language) => {
+  const tokens = await tokenize(code, language) // your highlighter
+  return tokens.map((token) => ({ from: token.start, to: token.end, className: `tok-${token.kind}` }))
+}
+```
+
+Return `null` to leave a block plain. Results are cached per code and language.
+
+## Copy button
+
+Every code block gets a copy button in its corner (it shows on hover or keyboard focus, and is
+always visible on touch screens). It copies the code as plain text and also works in read-only
+mode. Turn it off with `copyButton: false`.
+````
+
 `docs/guide/toolbar.md`:
 
 ````markdown
@@ -5695,23 +8409,24 @@ variables:
 
 ## Variables
 
-| Variable                | Default (light)  | Used for                                       |
-| ----------------------- | ---------------- | ---------------------------------------------- |
-| `--lme-font`            | system UI font   | Text                                           |
-| `--lme-font-mono`       | system monospace | Code                                           |
-| `--lme-font-size`       | `1rem`           | Base size; headings scale from it              |
-| `--lme-line-height`     | `1.65`           | Text                                           |
-| `--lme-text`            | `#1f2328`        | Text color                                     |
-| `--lme-muted`           | `#59636e`        | Quotes, finished tasks, labels                 |
-| `--lme-placeholder`     | `#6e7781`        | Placeholder                                    |
-| `--lme-accent`          | `#0969da`        | Links, checkboxes, caret, focus ring           |
-| `--lme-border`          | `#d1d9e0`        | Tables, rules                                  |
-| `--lme-code-bg`         | `#f6f8fa`        | Code and table headers                         |
-| `--lme-quote-border`    | `#d1d9e0`        | Quote bar                                      |
-| `--lme-selected-cell`   | accent at 12%    | Selected table cells                           |
-| `--lme-radius`          | `6px`            | Code blocks, images                            |
-| `--lme-block-gap`       | `0.75em`         | Space between blocks                           |
-| `--lme-done-decoration` | `none`           | Set to `line-through` to strike finished tasks |
+| Variable                                                                                                                   | Default (light)     | Used for                                       |
+| -------------------------------------------------------------------------------------------------------------------------- | ------------------- | ---------------------------------------------- |
+| `--lme-font`                                                                                                               | system UI font      | Text                                           |
+| `--lme-font-mono`                                                                                                          | system monospace    | Code                                           |
+| `--lme-font-size`                                                                                                          | `1rem`              | Base size; headings scale from it              |
+| `--lme-line-height`                                                                                                        | `1.65`              | Text                                           |
+| `--lme-text`                                                                                                               | `#1f2328`           | Text color                                     |
+| `--lme-muted`                                                                                                              | `#59636e`           | Quotes, finished tasks, labels                 |
+| `--lme-placeholder`                                                                                                        | `#6e7781`           | Placeholder                                    |
+| `--lme-accent`                                                                                                             | `#0969da`           | Links, checkboxes, caret, focus ring           |
+| `--lme-border`                                                                                                             | `#d1d9e0`           | Tables, rules                                  |
+| `--lme-code-bg`                                                                                                            | `#f6f8fa`           | Code and table headers                         |
+| `--lme-quote-border`                                                                                                       | `#d1d9e0`           | Quote bar                                      |
+| `--lme-selected-cell`                                                                                                      | accent at 12%       | Selected table cells                           |
+| `--lme-radius`                                                                                                             | `6px`               | Code blocks, images                            |
+| `--lme-block-gap`                                                                                                          | `0.75em`            | Space between blocks                           |
+| `--lme-done-decoration`                                                                                                    | `none`              | Set to `line-through` to strike finished tasks |
+| `--lme-code-keyword`, `-string`, `-comment`, `-number`, `-function`, `-type`, `-property`, `-tag`, `-inserted`, `-deleted` | GitHub-like palette | [Highlighted code](./highlighting)             |
 
 ## Dark mode
 
@@ -5729,6 +8444,9 @@ The theme follows the system setting (`prefers-color-scheme`). To force a mode, 
 | `.lme-check-content`            | Its text                                          |
 | `.lme-empty`                    | The empty first paragraph showing the placeholder |
 | `.lme-html`, `.lme-html-inline` | Raw HTML shown as text                            |
+| `.lme-copy`                     | The copy button on code blocks                    |
+| `.lme-streaming`                | The editing area while a stream runs              |
+| `.lme-stream-caret`             | The caret where streamed text arrives             |
 
 Code blocks with a language have `data-language` on the `<pre>`, which the theme shows in the
 corner.
@@ -5818,7 +8536,7 @@ Expected: TypeDoc writes `docs/api`, then VitePress ends with `build complete`.
 
 - [ ] **Step 6: Look at it**
 
-Run `pnpm docs:preview` and open `http://localhost:4173/live-md-editor/`. Check: the home page; the playground (editor on the left, markdown on the right, both update); `guide/syntax` (every example is editable, headings are large, checkboxes sit inside the demo box); dark mode via the toggle; a 390 px wide window. Stop the server.
+Run `pnpm docs:preview` and open `http://localhost:4173/live-md-editor/`. Check: the home page; the playground (editor on the left, markdown on the right, both update; **Simulate AI answer** streams a formatted, highlighted answer); `guide/syntax` (every example is editable, headings are large, checkboxes sit inside the demo box); `guide/ai` and `guide/highlighting` render; dark mode via the toggle; a 390 px wide window. Stop the server.
 
 - [ ] **Step 7: Commit**
 
@@ -5829,15 +8547,15 @@ git commit -m "docs: documentation site with guides, API reference and playgroun
 
 ---
 
-### Task 18: README, demo GIF and community files
+### Task 21: README, demo GIFs and community files
 
 **Files:**
-- Create: `scripts/record-demo.ts`, `docs/public/demo.gif` (generated)
+- Create: `scripts/record-demo.ts`, `docs/public/demo.gif` and `docs/public/demo-stream.gif` (generated)
 - Create: `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`
 - Create: `.github/ISSUE_TEMPLATE/bug_report.yml`, `.github/ISSUE_TEMPLATE/feature_request.yml`, `.github/ISSUE_TEMPLATE/config.yml`, `.github/PULL_REQUEST_TEMPLATE.md`
 
 **Interfaces:**
-- Consumes: the test page (Task 13), final sizes from `pnpm size` (Task 15).
+- Consumes: the test page (Task 16), final sizes from `pnpm size` (Task 18).
 - Produces: the repository front page and contributor guidance.
 
 - [ ] **Step 1: Install tsx and create the demo recorder**
@@ -5846,64 +8564,96 @@ Run: `pnpm add -D tsx@^4`
 
 `scripts/record-demo.ts`:
 
-```ts
-// Records docs/public/demo.gif: someone typing markdown into the editor.
+````ts
+// Records the README demos into docs/public:
+//   demo.gif         someone typing markdown shortcuts
+//   demo-stream.gif  an AI answer streaming in, formatted as it arrives
 // Run with the test page server up: pnpm dev (in another terminal), then
 // pnpm demo. Needs ffmpeg on PATH.
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { chromium } from '@playwright/test'
+import { chromium, type Page } from '@playwright/test'
 
-const videoDir = mkdtempSync(join(tmpdir(), 'lme-demo-'))
-const browser = await chromium.launch()
-const context = await browser.newContext({
-  viewport: { width: 720, height: 300 },
-  recordVideo: { dir: videoDir, size: { width: 720, height: 300 } },
+const size = { width: 720, height: 360 }
+
+async function record(name: string, url: string, act: (page: Page) => Promise<void>): Promise<void> {
+  const videoDir = mkdtempSync(join(tmpdir(), 'lme-demo-'))
+  const browser = await chromium.launch()
+  const context = await browser.newContext({ viewport: size, recordVideo: { dir: videoDir, size } })
+  const page = await context.newPage()
+  await page.goto(url)
+  await page.addStyleTag({ content: '#markdown { display: none } body { padding: 32px }' })
+  await act(page)
+  await context.close()
+  await browser.close()
+  const [video] = readdirSync(videoDir)
+  execFileSync('ffmpeg', [
+    '-y',
+    '-i',
+    join(videoDir, video!),
+    '-vf',
+    'fps=12,scale=720:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=64[p];[b][p]paletteuse',
+    `docs/public/${name}`,
+  ])
+  rmSync(videoDir, { recursive: true, force: true })
+  console.log(`Wrote docs/public/${name}`)
+}
+
+await record('demo.gif', 'http://localhost:4173/?placeholder=Start%20typing%20markdown...', async (page) => {
+  await page.getByRole('textbox').click()
+  await page.waitForTimeout(600)
+  const typeSlowly = (text: string) => page.keyboard.type(text, { delay: 55 })
+  await typeSlowly('# Shopping list')
+  await page.keyboard.press('Enter')
+  await typeSlowly('Things to buy **today**:')
+  await page.keyboard.press('Enter')
+  await typeSlowly('[ ] Milk')
+  await page.keyboard.press('Enter')
+  await typeSlowly('Bread')
+  await page.keyboard.press('Enter')
+  await typeSlowly('Coffee')
+  await page.waitForTimeout(400)
+  await page.getByRole('checkbox').first().click()
+  await page.waitForTimeout(400)
+  await page.getByRole('checkbox').nth(2).click()
+  await page.waitForTimeout(1500)
 })
-const page = await context.newPage()
-await page.goto('http://localhost:4173/?placeholder=Start%20typing%20markdown...')
-await page.addStyleTag({ content: '#markdown { display: none } body { padding: 32px }' })
-await page.getByRole('textbox').click()
-await page.waitForTimeout(600)
 
-const typeSlowly = (text: string) => page.keyboard.type(text, { delay: 55 })
-await typeSlowly('# Shopping list')
-await page.keyboard.press('Enter')
-await typeSlowly('Things to buy **today**:')
-await page.keyboard.press('Enter')
-await typeSlowly('[ ] Milk')
-await page.keyboard.press('Enter')
-await typeSlowly('Bread')
-await page.keyboard.press('Enter')
-await typeSlowly('Coffee')
-await page.waitForTimeout(400)
-await page.getByRole('checkbox').first().click()
-await page.waitForTimeout(400)
-await page.getByRole('checkbox').nth(2).click()
-await page.waitForTimeout(1500)
+const answer = [
+  '## Reading a file in Node',
+  '',
+  'Use **`fs/promises`** so the call does not block:',
+  '',
+  '```ts',
+  "import { readFile } from 'node:fs/promises'",
+  '',
+  "const text = await readFile('notes.md', 'utf8')",
+  '```',
+  '',
+  '- [x] Works in ESM',
+  '- [ ] Handle `ENOENT` errors',
+].join('\n')
 
-await context.close()
-await browser.close()
-
-const [video] = readdirSync(videoDir)
-execFileSync('ffmpeg', [
-  '-y',
-  '-i',
-  join(videoDir, video!),
-  '-vf',
-  'fps=12,scale=720:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=64[p];[b][p]paletteuse',
-  'docs/public/demo.gif',
-])
-rmSync(videoDir, { recursive: true, force: true })
-console.log('Wrote docs/public/demo.gif')
-```
+await record('demo-stream.gif', 'http://localhost:4173/?highlight=1', async (page) => {
+  await page.waitForTimeout(500)
+  await page.evaluate(async (text) => {
+    const writer = window.editor.stream()
+    for (let i = 0; i < text.length; i += 3) {
+      writer.write(text.slice(i, i + 3))
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    }
+    writer.end()
+  }, answer)
+  await page.waitForTimeout(1500)
+})
+````
 
 - [ ] **Step 2: Record the GIF**
 
 Run `pnpm dev` in one terminal, then in another: `pnpm demo` (needs `ffmpeg`; on macOS `brew install ffmpeg`).
-Expected: `Wrote docs/public/demo.gif` (about 160 KB). Open it: a heading, bold text and three tasks being typed, two of them ticked. Stop the dev server.
+Expected: `Wrote docs/public/demo.gif` (about 150 KB) and `Wrote docs/public/demo-stream.gif` (about 60 KB). Open them: in the first, a heading, bold text and three tasks are typed and two are ticked; in the second, an AI answer streams in with a coloured code block and ends with two task items. Stop the dev server.
 
 - [ ] **Step 3: Write `README.md`**
 
@@ -5918,9 +8668,12 @@ Fill in the three sizes from your `pnpm size` output (the values below are the p
 
 **Edit markdown without seeing markdown.** A lightweight WYSIWYG editor: headings look like
 headings, checkboxes are real checkboxes, and the value you get back is plain markdown.
+Built for AI: stream a model's answer in and it renders formatted as it arrives.
 Works with Next.js, React, Vue, Svelte or no framework at all.
 
 ![Typing markdown into live-md-editor](./docs/public/demo.gif)
+
+![An AI answer streaming into live-md-editor](./docs/public/demo-stream.gif)
 
 [Documentation](https://salvatorecastellitti.github.io/live-md-editor/) ·
 [Playground](https://salvatorecastellitti.github.io/live-md-editor/playground) ·
@@ -5928,6 +8681,11 @@ Works with Next.js, React, Vue, Svelte or no framework at all.
 
 ## Features
 
+- **Built for AI answers.** Stream markdown in from any model or SDK and it renders formatted
+  as it arrives: unfinished syntax is repaired, so raw `**` or `###` never flash on screen. An AI
+  can also write into a document at the cursor, as one undo step.
+- **Code that looks right.** Optional syntax highlighting (languages load on demand) and a copy
+  button on every code block.
 - **Markdown in, markdown out.** The value is a plain string. Output is canonical, so saving
   never creates noisy diffs.
 - **Formatted while you type.** `## ` becomes a heading, `- [ ] ` a checkbox, `**bold**` bold.
@@ -5937,7 +8695,7 @@ Works with Next.js, React, Vue, Svelte or no framework at all.
 - **Safe.** Raw HTML is shown as text, never run. Links only allow http, https, mailto and
   relative URLs.
 - **Fast.** About 2 ms per keystroke on a 10,000-line document.
-- **Small.** 106.5 kB gzipped including ProseMirror (the engine behind many production editors).
+- **Small.** 110 kB gzipped including ProseMirror (the engine behind many production editors).
 
 ## Install
 
@@ -5959,6 +8717,21 @@ export function NoteEditor({ initial }: { initial: string }) {
   return <LiveMarkdownEditor value={markdown} onChange={setMarkdown} placeholder="Write..." />
 }
 ```
+
+## Streaming an AI answer
+
+```tsx
+// Pass the growing text and a streaming flag, as AI SDKs give them to you.
+<LiveMarkdownEditor value={answer} streaming={isStreaming} editable={!isStreaming} highlight={highlight} />
+```
+
+```ts
+// Or without React: stream any fetch body, SDK stream or async iterable.
+const markdown = await editor.streamFrom(response.body!)
+```
+
+See the [AI streaming guide](https://salvatorecastellitti.github.io/live-md-editor/guide/ai),
+including a Next.js route that streams Claude.
 
 ## Any framework, or none
 
@@ -5995,9 +8768,10 @@ Guides for [Vue](https://salvatorecastellitti.github.io/live-md-editor/guide/vue
 
 | Entry | Gzipped |
 | --- | --- |
-| `live-md-editor` | 106.5 kB |
-| `live-md-editor/react` | 106.8 kB (includes the core) |
-| `live-md-editor/style.css` | 2.2 kB |
+| `live-md-editor` | 110.1 kB |
+| `live-md-editor/react` | 110.5 kB (includes the core) |
+| `live-md-editor/highlight` | 9.6 kB, plus 1 to 5 kB per language, loaded when first used |
+| `live-md-editor/style.css` | 3.0 kB |
 
 Sizes include every dependency and are checked on each pull request.
 
@@ -6007,8 +8781,8 @@ Current Chrome, Edge, Firefox and Safari, on desktop and mobile.
 
 ## Roadmap
 
-Expo / React Native package, image upload hooks, an optional toolbar and slash menu, syntax
-highlighting in code blocks, math and footnotes. Ideas welcome in
+Expo / React Native package, a math (LaTeX) add-on, image upload hooks, an optional toolbar
+and slash menu, footnotes. Ideas welcome in
 [issues](https://github.com/salvatorecastellitti/live-md-editor/issues).
 
 ## Contributing
@@ -6209,13 +8983,13 @@ Expected: no problems.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add package.json pnpm-lock.yaml scripts docs/public/demo.gif README.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md .github/ISSUE_TEMPLATE .github/PULL_REQUEST_TEMPLATE.md
-git commit -m "docs: README, demo, contributing guide and community files" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git add package.json pnpm-lock.yaml scripts docs/public/demo.gif docs/public/demo-stream.gif README.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md .github/ISSUE_TEMPLATE .github/PULL_REQUEST_TEMPLATE.md
+git commit -m "docs: README, demos, contributing guide and community files" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 19: CI, release and docs automation
+### Task 22: CI, release and docs automation
 
 **Files:**
 - Create: `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/workflows/docs.yml`
@@ -6412,11 +9186,11 @@ git add package.json pnpm-lock.yaml .changeset .github/workflows
 git commit -m "ci: add CI, release and docs workflows" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-The workflows run once the repository is on GitHub. Publishing needs one-time setup by the maintainer (listed in Task 20, not done by the implementer).
+The workflows run once the repository is on GitHub. Publishing needs one-time setup by the maintainer (listed in Task 23, not done by the implementer).
 
 ---
 
-### Task 20: Final verification
+### Task 23: Final verification
 
 **Files:**
 - Modify: whatever `pnpm format` touches.
@@ -6434,7 +9208,7 @@ pnpm test:perf
 pnpm --filter "./examples/*" build
 pnpm docs:build
 ```
-Expected: everything passes (see the Firefox note in Task 13 for local macOS runs).
+Expected: everything passes (see the Firefox note in Task 16 for local macOS runs).
 
 - [ ] **Step 2: Verify the package as a consumer sees it**
 
