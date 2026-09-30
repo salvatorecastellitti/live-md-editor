@@ -102,6 +102,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.63.0",
     "@testing-library/react": "^16.3.3",
     "@types/markdown-it": "^14.2.0",
     "@types/node": "^22.20.4",
