@@ -115,4 +115,13 @@ describe('LiveMarkdownEditor streaming', () => {
     act(() => rerender(<LiveMarkdownEditor ref={ref} value="Second answer" streaming={false} />))
     expect(ref.current!.getMarkdown()).toBe('Second answer')
   })
+
+  it('applies a final value that does not extend the streamed text', () => {
+    const ref = createRef<Editor | null>()
+    const { rerender } = render(<LiveMarkdownEditor ref={ref} value="First answer" streaming />)
+    act(() => rerender(<LiveMarkdownEditor ref={ref} value="Corrected answer" streaming={false} />))
+    expect(ref.current!.getMarkdown()).toBe('Corrected answer')
+    act(() => rerender(<LiveMarkdownEditor ref={ref} value="Corrected answer" streaming={false} />))
+    expect(ref.current!.getMarkdown()).toBe('Corrected answer')
+  })
 })

@@ -121,8 +121,12 @@ export const LiveMarkdownEditor = forwardRef<Editor | null, LiveMarkdownEditorPr
       }
       if (current) {
         stream.current = null
-        if (text.startsWith(current.text)) current.writer.write(text.slice(current.text.length))
+        const extends_ = text.startsWith(current.text)
+        if (extends_) current.writer.write(text.slice(current.text.length))
         current.writer.end()
+        // The final value may differ from what was streamed (for example a
+        // corrected answer): show it.
+        if (!extends_ && text !== editor.getMarkdown()) editor.setMarkdown(text)
         reported.current = text
         return
       }
