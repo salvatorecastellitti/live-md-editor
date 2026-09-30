@@ -117,9 +117,12 @@
     "vitest": "^3.2.7"
   },
   "dependencies": {
+    "prosemirror-commands": "^1.7.2",
     "prosemirror-history": "^1.5.1",
     "prosemirror-inputrules": "^1.5.1",
+    "prosemirror-keymap": "^1.2.3",
     "prosemirror-model": "^1.25.12",
+    "prosemirror-schema-list": "^1.5.1",
     "prosemirror-state": "^1.4.4",
     "prosemirror-tables": "^1.8.5",
     "prosemirror-transform": "^1.12.2",
