@@ -2,13 +2,15 @@
  * Yields `text` in small, uneven pieces with short pauses, the way a model
  * streams tokens. Lets the demo run without an API key.
  */
-export async function* simulateTokens(text: string): AsyncGenerator<string> {
+export async function* simulateTokens(text: string, signal?: AbortSignal): AsyncGenerator<string> {
   let i = 0
   while (i < text.length) {
+    if (signal?.aborted) return
     const size = 2 + Math.floor(Math.random() * 6)
     yield text.slice(i, i + size)
     i += size
     await new Promise((resolve) => setTimeout(resolve, 25))
+    if (signal?.aborted) return
   }
 }
 

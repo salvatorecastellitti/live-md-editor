@@ -52,7 +52,7 @@ export default function AiPage() {
         <button
           type="button"
           disabled={streaming}
-          onClick={() => void run(() => simulateTokens(sampleAnswer))}
+          onClick={() => void run((signal) => simulateTokens(sampleAnswer, signal))}
         >
           Simulated answer
         </button>
