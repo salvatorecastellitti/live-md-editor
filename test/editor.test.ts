@@ -95,6 +95,17 @@ describe('createEditor', () => {
     expect(input.disabled).toBe(false)
   })
 
+  it('announces read-only state with aria-readonly, including while streaming', () => {
+    const editor = make('text', { editable: false })
+    expect(editor.view.dom.getAttribute('aria-readonly')).toBe('true')
+    editor.setEditable(true)
+    expect(editor.view.dom.getAttribute('aria-readonly')).toBeNull()
+    const writer = editor.stream()
+    expect(editor.view.dom.getAttribute('aria-readonly')).toBe('true')
+    writer.end()
+    expect(editor.view.dom.getAttribute('aria-readonly')).toBeNull()
+  })
+
   it('wires input rules, keymaps, commands and isActive together', () => {
     const onLink = vi.fn()
     const editor = make('')

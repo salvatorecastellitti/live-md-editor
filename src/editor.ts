@@ -185,12 +185,14 @@ export function createEditor(options: EditorOptions): Editor {
   const view: EditorView = new EditorView(options.element, {
     state: createState(options.value ?? ''),
     editable: () => editable && !active,
-    attributes: {
+    // A function, so refreshEditable() updates aria-readonly with contenteditable.
+    attributes: () => ({
       class: ['lme', options.classNames?.root].filter(Boolean).join(' '),
       role: 'textbox',
       'aria-multiline': 'true',
       ...(options.ariaLabel ? { 'aria-label': options.ariaLabel } : {}),
-    },
+      ...(editable && !active ? {} : { 'aria-readonly': 'true' }),
+    }),
     nodeViews: {
       list_item: (node, nodeView, getPos) => new ListItemView(node, nodeView, getPos),
     },
@@ -293,9 +295,10 @@ export function createEditor(options: EditorOptions): Editor {
     view,
     getMarkdown,
     setMarkdown(markdown) {
-      active?.detach()
       cancelChange()
       view.updateState(createState(markdown))
+      // Detach after the swap, so streamEnd reports the new document.
+      active?.detach()
       emit('selectionChange')
     },
     setEditable(value) {

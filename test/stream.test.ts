@@ -116,6 +116,18 @@ describe('streaming at the end', () => {
     expect(editor.isStreaming()).toBe(false)
     expect(editor.getMarkdown()).toBe('# Fresh')
   })
+
+  it('reports the new document to streamEnd when setMarkdown interrupts a stream', () => {
+    const editor = make()
+    const ended = vi.fn()
+    editor.on('streamEnd', ended)
+    const writer = editor.stream()
+    writer.write('partial')
+    writer.flush()
+    editor.setMarkdown('# Fresh')
+    expect(ended).toHaveBeenCalledOnce()
+    expect(ended).toHaveBeenCalledWith('# Fresh')
+  })
 })
 
 describe('streaming at the cursor', () => {
