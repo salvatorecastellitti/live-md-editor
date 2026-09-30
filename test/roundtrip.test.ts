@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { MarkdownSerializerState } from 'prosemirror-markdown'
+import { describe, expect, it, vi } from 'vitest'
 import { createParser } from '../src/markdown/parser'
 import { serializeMarkdown } from '../src/markdown/serializer'
 import corpus from './fixtures/corpus.md?raw'
@@ -103,5 +104,16 @@ describe('real-world corpus', () => {
     const once = roundTrip(corpus)
     expect(roundTrip(once)).toBe(once)
     expect(parse(once).textContent).toBe(parse(corpus).textContent)
+  })
+})
+
+describe('serializer state', () => {
+  it('escapes normally after a serialization that threw inside an autolink', () => {
+    const spy = vi.spyOn(MarkdownSerializerState.prototype, 'text').mockImplementationOnce(() => {
+      throw new Error('boom')
+    })
+    expect(() => roundTrip('<https://example.com>')).toThrow('boom')
+    spy.mockRestore()
+    expect(roundTrip('\\*not em\\*')).toBe('\\*not em\\*')
   })
 })

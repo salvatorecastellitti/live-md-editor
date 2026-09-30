@@ -179,7 +179,14 @@ const serializer: MarkdownSerializer = new MarkdownSerializer(
 
 /** Serializes a document to canonical markdown. */
 export function serializeMarkdown(doc: Node): string {
-  const body = serializer.serialize(doc, { tightLists: true })
+  let body: string
+  inAutolink = false
+  try {
+    body = serializer.serialize(doc, { tightLists: true })
+  } finally {
+    // A serialization that throws inside a link must not leave the flag set.
+    inAutolink = false
+  }
   const frontmatter = doc.attrs.frontmatter as string | null
   if (frontmatter === null) return body
   const block = frontmatter ? `---\n${frontmatter}\n---` : '---\n---'
