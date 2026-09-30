@@ -55,6 +55,13 @@ describe('schema', () => {
     expect(dom.querySelector('a')!.hasAttribute('href')).toBe(false)
   })
 
+  it('reads a bad ordered list start from pasted HTML as a valid number', () => {
+    const order = (html: string) => parseHTML(html).firstChild!.attrs.order as number
+    expect(order('<ol start="abc"><li>x</li></ol>')).toBe(1)
+    expect(order('<ol start="-3"><li>x</li></ol>')).toBe(0)
+    expect(order('<ol start="7"><li>x</li></ol>')).toBe(7)
+  })
+
   it('shows code block language as a data attribute', () => {
     const doc = schema.node('doc', null, [schema.node('code_block', { language: 'ts' }, [schema.text('x')])])
     const dom = DOMSerializer.fromSchema(schema).serializeFragment(doc.content)

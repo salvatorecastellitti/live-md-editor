@@ -122,7 +122,10 @@ const nodes: Record<NodeName, NodeSpec> = {
     parseDOM: [
       {
         tag: 'ol',
-        getAttrs: (dom) => ({ order: dom.hasAttribute('start') ? Number(dom.getAttribute('start')) : 1 }),
+        getAttrs: (dom) => {
+          const start = parseInt(dom.getAttribute('start') ?? '1', 10)
+          return { order: Number.isNaN(start) ? 1 : Math.max(0, start) }
+        },
       },
     ],
     toDOM: (node): DOMOutputSpec =>
