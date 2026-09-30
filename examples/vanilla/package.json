@@ -1,0 +1,15 @@
+{
+  "name": "example-vanilla",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "live-md-editor": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^5.4.14"
+  }
+}
