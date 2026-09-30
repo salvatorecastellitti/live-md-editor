@@ -122,6 +122,7 @@
     "react-dom": "^19.3.0",
     "size-limit": "^14.1.0",
     "tsup": "^8.5.1",
+    "tsx": "^4.23.15",
     "typedoc": "^0.28.20",
     "typedoc-plugin-markdown": "^4.13.1",
     "typedoc-vitepress-theme": "^1.1.4",
