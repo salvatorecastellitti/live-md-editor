@@ -62,6 +62,16 @@ test('read-only mode renders but does not edit', async ({ page }) => {
   await expect(editor(page).locator('input[type=checkbox]')).toBeDisabled()
 })
 
+test('read-only mode opens links in a new tab without leaving the page', async ({ page }) => {
+  const target = 'http://localhost:4173/?value=opened'
+  await page.goto(`/?${new URLSearchParams({ value: `[docs](${target})`, readonly: '1' })}`)
+  const url = page.url()
+  const popup = page.waitForEvent('popup')
+  await editor(page).locator('a').click()
+  expect((await popup).url()).toBe(target)
+  expect(page.url()).toBe(url)
+})
+
 test('default theme styles headings, placeholder and code language', async ({ page }) => {
   await page.goto(`/?${new URLSearchParams({ placeholder: 'Write something' })}`)
   const before = await editor(page)
