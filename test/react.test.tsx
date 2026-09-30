@@ -1,5 +1,5 @@
 import { StrictMode, createRef, useState } from 'react'
-import { act, render } from '@testing-library/react'
+import { act, render, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { Editor } from 'live-md-editor'
 import { LiveMarkdownEditor } from '../src/react'
@@ -123,5 +123,41 @@ describe('LiveMarkdownEditor streaming', () => {
     expect(ref.current!.getMarkdown()).toBe('Corrected answer')
     act(() => rerender(<LiveMarkdownEditor ref={ref} value="Corrected answer" streaming={false} />))
     expect(ref.current!.getMarkdown()).toBe('Corrected answer')
+  })
+
+  it('a corrected final value is not reverted by a parent that mirrors onChange', () => {
+    const ref = createRef<Editor | null>()
+    const seen = vi.fn()
+    function App() {
+      const [md, setMd] = useState('First answer')
+      const [streaming, setStreaming] = useState(true)
+      return (
+        <>
+          <LiveMarkdownEditor
+            ref={ref}
+            value={md}
+            streaming={streaming}
+            onChange={(v) => {
+              seen(v)
+              setMd(v)
+            }}
+          />
+          <button
+            onClick={() => {
+              setMd('Corrected answer')
+              setStreaming(false)
+            }}
+          >
+            done
+          </button>
+        </>
+      )
+    }
+    const { getByText } = within(render(<App />).container)
+    act(() => {
+      getByText('done').click()
+    })
+    expect(ref.current!.getMarkdown()).toBe('Corrected answer')
+    expect(seen).not.toHaveBeenCalledWith('First answer')
   })
 })
