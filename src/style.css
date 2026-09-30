@@ -1,0 +1,519 @@
+/*
+ * live-md-editor default theme.
+ *
+ * Every rule has the specificity of one class (.lme): enough to beat CSS
+ * resets such as Tailwind's preflight, low enough that your own rules
+ * (for example `.lme h1`) win without !important. Customise with the
+ * --lme-* variables, for example:
+ *
+ *   .lme { --lme-accent: #7c3aed; --lme-font: 'Inter', sans-serif; }
+ *
+ * Dark mode follows prefers-color-scheme. Force a theme by setting
+ * data-theme="light" or data-theme="dark" on any ancestor. The dark
+ * palette brings its own background (--lme-bg) and padding, so it stays
+ * readable on a light page; set `.lme { --lme-bg: transparent }` to drop it.
+ */
+
+.lme {
+  --lme-font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --lme-font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --lme-font-size: 1rem;
+  --lme-line-height: 1.65;
+  --lme-bg: transparent;
+  --lme-padding: 0;
+  --lme-text: #1f2328;
+  --lme-muted: #59636e;
+  --lme-placeholder: #6e7781;
+  --lme-accent: #0969da;
+  --lme-border: #d1d9e0;
+  --lme-code-bg: #f6f8fa;
+  --lme-quote-border: #d1d9e0;
+  --lme-selected-cell: rgb(9 105 218 / 12%);
+  --lme-radius: 6px;
+  --lme-block-gap: 0.75em;
+  --lme-done-decoration: none;
+  --lme-code-keyword: #cf222e;
+  --lme-code-string: #0a3069;
+  --lme-code-comment: #59636e;
+  --lme-code-number: #0550ae;
+  --lme-code-function: #8250df;
+  --lme-code-type: #953800;
+  --lme-code-property: #0550ae;
+  --lme-code-tag: #116329;
+  --lme-code-inserted: #116329;
+  --lme-code-deleted: #82071e;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  .lme {
+    --lme-bg: #0d1117;
+    --lme-padding: 0.75em 1em;
+    --lme-text: #e6edf3;
+    --lme-muted: #9198a1;
+    --lme-placeholder: #7d8590;
+    --lme-accent: #4493f8;
+    --lme-border: #3d444d;
+    --lme-code-bg: #151b23;
+    --lme-quote-border: #3d444d;
+    --lme-selected-cell: rgb(68 147 248 / 20%);
+    --lme-code-keyword: #ff7b72;
+    --lme-code-string: #a5d6ff;
+    --lme-code-comment: #9198a1;
+    --lme-code-number: #79c0ff;
+    --lme-code-function: #d2a8ff;
+    --lme-code-type: #ffa657;
+    --lme-code-property: #79c0ff;
+    --lme-code-tag: #7ee787;
+    --lme-code-inserted: #aff5b4;
+    --lme-code-deleted: #ffdcd7;
+    color-scheme: dark;
+  }
+}
+
+:where([data-theme='light']) .lme {
+  --lme-bg: transparent;
+  --lme-padding: 0;
+  --lme-text: #1f2328;
+  --lme-muted: #59636e;
+  --lme-placeholder: #6e7781;
+  --lme-accent: #0969da;
+  --lme-border: #d1d9e0;
+  --lme-code-bg: #f6f8fa;
+  --lme-quote-border: #d1d9e0;
+  --lme-selected-cell: rgb(9 105 218 / 12%);
+  --lme-code-keyword: #cf222e;
+  --lme-code-string: #0a3069;
+  --lme-code-comment: #59636e;
+  --lme-code-number: #0550ae;
+  --lme-code-function: #8250df;
+  --lme-code-type: #953800;
+  --lme-code-property: #0550ae;
+  --lme-code-tag: #116329;
+  --lme-code-inserted: #116329;
+  --lme-code-deleted: #82071e;
+  color-scheme: light;
+}
+
+:where([data-theme='dark']) .lme {
+  --lme-bg: #0d1117;
+  --lme-padding: 0.75em 1em;
+  --lme-text: #e6edf3;
+  --lme-muted: #9198a1;
+  --lme-placeholder: #7d8590;
+  --lme-accent: #4493f8;
+  --lme-border: #3d444d;
+  --lme-code-bg: #151b23;
+  --lme-quote-border: #3d444d;
+  --lme-selected-cell: rgb(68 147 248 / 20%);
+  --lme-code-keyword: #ff7b72;
+  --lme-code-string: #a5d6ff;
+  --lme-code-comment: #9198a1;
+  --lme-code-number: #79c0ff;
+  --lme-code-function: #d2a8ff;
+  --lme-code-type: #ffa657;
+  --lme-code-property: #79c0ff;
+  --lme-code-tag: #7ee787;
+  --lme-code-inserted: #aff5b4;
+  --lme-code-deleted: #ffdcd7;
+  color-scheme: dark;
+}
+
+/* Editing surface. The first four rules are what ProseMirror needs to work. */
+.lme {
+  position: relative;
+  white-space: pre-wrap;
+  white-space: break-spaces;
+  word-wrap: break-word;
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0;
+  font-family: var(--lme-font);
+  font-size: var(--lme-font-size);
+  line-height: var(--lme-line-height);
+  color: var(--lme-text);
+  background: var(--lme-bg);
+  padding: var(--lme-padding);
+  border-radius: var(--lme-radius);
+  caret-color: var(--lme-accent);
+  outline: none;
+  min-height: 1lh;
+}
+
+.lme :where(p, ul, ol, blockquote, pre, table, hr, .lme-html) {
+  margin-block: 0 var(--lme-block-gap);
+}
+
+.lme > :where(:last-child) {
+  margin-block-end: 0;
+}
+
+.lme :where(h1, h2, h3, h4, h5, h6) {
+  margin-block: 1.4em 0.5em;
+  line-height: 1.25;
+  font-weight: 650;
+}
+
+.lme > :where(h1, h2, h3, h4, h5, h6):first-child {
+  margin-block-start: 0;
+}
+
+.lme :where(h1) {
+  font-size: 2em;
+}
+.lme :where(h2) {
+  font-size: 1.5em;
+}
+.lme :where(h3) {
+  font-size: 1.25em;
+}
+.lme :where(h4) {
+  font-size: 1em;
+}
+.lme :where(h5) {
+  font-size: 0.875em;
+}
+.lme :where(h6) {
+  font-size: 0.85em;
+  color: var(--lme-muted);
+}
+
+.lme :where(a) {
+  color: var(--lme-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.lme :where(code) {
+  font-family: var(--lme-font-mono);
+  font-size: 0.875em;
+  background: var(--lme-code-bg);
+  border-radius: calc(var(--lme-radius) / 2);
+  padding: 0.15em 0.35em;
+}
+
+.lme :where(pre) {
+  position: relative;
+  white-space: pre-wrap;
+  font-family: var(--lme-font-mono);
+  font-size: 0.875em;
+  line-height: 1.5;
+  background: var(--lme-code-bg);
+  border-radius: var(--lme-radius);
+  padding: 0.9em 1em;
+  overflow-x: auto;
+}
+
+.lme :where(pre code) {
+  font-size: inherit;
+  background: none;
+  padding: 0;
+}
+
+.lme :where(pre[data-language])::before {
+  content: attr(data-language);
+  position: absolute;
+  top: 0.4em;
+  right: 3em;
+  font-family: var(--lme-font);
+  font-size: 0.75em;
+  color: var(--lme-muted);
+  pointer-events: none;
+}
+
+.lme :where(.lme-html, .lme-html-inline) {
+  color: var(--lme-muted);
+}
+
+.lme :where(blockquote) {
+  margin-inline: 0;
+  padding-inline-start: 1em;
+  border-inline-start: 0.25em solid var(--lme-quote-border);
+  color: var(--lme-muted);
+}
+
+.lme :where(ul, ol) {
+  padding-inline-start: 1.6em;
+}
+
+.lme :where(li) {
+  position: relative;
+}
+
+.lme :where(li > p, .lme-check-content > p) {
+  margin-block: 0;
+}
+
+.lme :where(li + li) {
+  margin-block-start: 0.2em;
+}
+
+.lme :where(li.lme-check-item) {
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  margin-inline-start: -1.4em;
+}
+
+.lme :where(.lme-check-input) {
+  flex: none;
+  width: 1em;
+  height: 1em;
+  margin: 0;
+  accent-color: var(--lme-accent);
+  cursor: pointer;
+  transform: translateY(0.125em);
+}
+
+.lme :where(.lme-check-input:disabled) {
+  cursor: default;
+}
+
+.lme :where(.lme-check-content) {
+  flex: 1;
+  min-width: 0;
+}
+
+.lme :where(li[data-check='task'][data-checked='true'] > .lme-check-content > p) {
+  color: var(--lme-muted);
+  text-decoration: var(--lme-done-decoration);
+}
+
+.lme :where(hr) {
+  border: none;
+  border-top: 1px solid var(--lme-border);
+  margin-block: 1.5em;
+}
+
+.lme :where(img:not(.ProseMirror-separator)) {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--lme-radius);
+}
+
+.lme :where(img.ProseMirror-separator) {
+  display: inline;
+  border: none;
+  margin: 0;
+}
+
+.lme :where(.tableWrapper) {
+  overflow-x: auto;
+  margin-block: 0 var(--lme-block-gap);
+}
+
+.lme :where(table) {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  overflow: hidden;
+}
+
+.lme :where(th, td) {
+  position: relative;
+  box-sizing: border-box;
+  vertical-align: top;
+  border: 1px solid var(--lme-border);
+  padding: 0.4em 0.7em;
+  text-align: start;
+}
+
+.lme :where(th) {
+  font-weight: 650;
+  background: var(--lme-code-bg);
+}
+
+.lme :where(.selectedCell)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--lme-selected-cell);
+  pointer-events: none;
+}
+
+/* Syntax highlighting (class names from highlight.js). */
+.lme
+  :where(.hljs-keyword, .hljs-doctag, .hljs-template-tag, .hljs-template-variable, .hljs-variable.language_) {
+  color: var(--lme-code-keyword);
+}
+
+.lme :where(.hljs-string, .hljs-regexp, .hljs-meta .hljs-string) {
+  color: var(--lme-code-string);
+}
+
+.lme :where(.hljs-comment, .hljs-quote) {
+  color: var(--lme-code-comment);
+  font-style: italic;
+}
+
+.lme :where(.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet) {
+  color: var(--lme-code-number);
+}
+
+.lme :where(.hljs-title, .hljs-title.function_, .hljs-section) {
+  color: var(--lme-code-function);
+}
+
+.lme :where(.hljs-type, .hljs-title.class_, .hljs-built_in) {
+  color: var(--lme-code-type);
+}
+
+.lme
+  :where(
+    .hljs-attr,
+    .hljs-attribute,
+    .hljs-property,
+    .hljs-meta,
+    .hljs-variable,
+    .hljs-selector-class,
+    .hljs-selector-id
+  ) {
+  color: var(--lme-code-property);
+}
+
+.lme :where(.hljs-name, .hljs-tag, .hljs-selector-tag) {
+  color: var(--lme-code-tag);
+}
+
+.lme :where(.hljs-addition) {
+  color: var(--lme-code-inserted);
+}
+
+.lme :where(.hljs-deletion) {
+  color: var(--lme-code-deleted);
+}
+
+/* Copy button in the corner of code blocks. */
+.lme :where(.lme-copy) {
+  position: absolute;
+  top: 0.45em;
+  right: 0.45em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2em;
+  height: 2em;
+  padding: 0;
+  border: 1px solid var(--lme-border);
+  border-radius: calc(var(--lme-radius) - 1px);
+  background: var(--lme-code-bg);
+  color: var(--lme-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.lme :where(.lme-copy svg) {
+  width: 1.1em;
+  height: 1.1em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.lme :where(pre:hover .lme-copy, .lme-copy:focus-visible, .lme-copy[data-copied='true']) {
+  opacity: 1;
+}
+
+.lme :where(.lme-copy:hover) {
+  color: var(--lme-text);
+}
+
+.lme :where(.lme-copy[data-copied='true']) {
+  color: var(--lme-accent);
+}
+
+@media (hover: none) {
+  .lme :where(.lme-copy) {
+    opacity: 1;
+  }
+}
+
+/* Streaming: a caret where text arrives. */
+.lme :where(.lme-stream-caret) {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-inline-start: 1px;
+  vertical-align: -0.15em;
+  border-radius: 1px;
+  background: var(--lme-accent);
+  animation: lme-cursor-blink 1s steps(2, start) infinite;
+}
+
+/* Placeholder while the document is empty. */
+.lme :where(.lme-empty)::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--lme-placeholder);
+  pointer-events: none;
+}
+
+/* ProseMirror selection and cursor helpers. */
+.lme :where(.ProseMirror-selectednode) {
+  outline: 2px solid var(--lme-accent);
+  outline-offset: 2px;
+}
+
+.lme :where(li.ProseMirror-selectednode) {
+  outline: none;
+}
+
+.ProseMirror-hideselection *::selection {
+  background: transparent;
+}
+
+.ProseMirror-hideselection {
+  caret-color: transparent;
+}
+
+.lme :where([draggable][contenteditable='false']) {
+  user-select: text;
+}
+
+.lme :where(.ProseMirror-gapcursor) {
+  display: none;
+  position: absolute;
+  pointer-events: none;
+}
+
+.lme :where(.ProseMirror-gapcursor)::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  display: block;
+  width: 20px;
+  border-top: 1px solid var(--lme-text);
+  animation: lme-cursor-blink 1.1s steps(2, start) infinite;
+}
+
+.lme.ProseMirror-focused :where(.ProseMirror-gapcursor) {
+  display: block;
+}
+
+@keyframes lme-cursor-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lme :where(.ProseMirror-gapcursor)::after,
+  .lme :where(.lme-stream-caret) {
+    animation: none;
+  }
+
+  .lme :where(.lme-copy) {
+    transition: none;
+  }
+}
+
+/* Keyboard focus ring on the editing area. */
+.lme:focus-visible {
+  outline: 2px solid var(--lme-accent);
+  outline-offset: 4px;
+  border-radius: 2px;
+}

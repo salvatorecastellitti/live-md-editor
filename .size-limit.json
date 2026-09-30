@@ -1,0 +1,32 @@
+[
+  {
+    "name": "core: createEditor",
+    "path": "dist/index.js",
+    "import": "{ createEditor }",
+    "limit": "115 kB",
+    "gzip": true
+  },
+  {
+    "name": "react: LiveMarkdownEditor (with core)",
+    "path": "dist/react.js",
+    "import": "{ LiveMarkdownEditor }",
+    "ignore": ["react", "react-dom"],
+    "limit": "116 kB",
+    "gzip": true
+  },
+  {
+    "name": "highlight add-on (first load; each language is a separate small file)",
+    "path": "dist/highlight.js",
+    "import": "{ highlight }",
+    "limit": "15 kB",
+    "gzip": true,
+    "entry": ["index"]
+  },
+  {
+    "name": "style.css",
+    "path": "dist/style.css",
+    "rolldown": false,
+    "limit": "3.5 kB",
+    "gzip": true
+  }
+]

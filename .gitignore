@@ -1,0 +1,14 @@
+node_modules
+dist
+coverage
+playwright-report
+test-results
+*.tsbuildinfo
+.DS_Store
+docs/.vitepress/cache
+docs/.vitepress/dist
+docs/api
+examples/*/.next
+examples/*/dist
+examples/*/next-env.d.ts
+.superpowers/
