@@ -4,24 +4,43 @@ The editor ships without a toolbar so it fits any design. Every button you need 
 away, and `isActive` tells you which buttons to highlight.
 
 ```ts
-const buttons = [
-  { label: 'Bold', run: () => editor.commands.toggleBold(), active: () => editor.isActive('bold') },
-  {
-    label: 'H2',
-    run: () => editor.commands.setHeading(2),
-    active: () => editor.isActive('heading', { level: 2 }),
-  },
-  { label: 'Tasks', run: () => editor.commands.toggleTaskList(), active: () => editor.isActive('taskList') },
-]
+import type { Editor } from 'live-md-editor'
 
-editor.on('selectionChange', () => {
-  for (const button of buttons) button.element.setAttribute('aria-pressed', String(button.active()))
-})
+export function createToolbar(editor: Editor, container: HTMLElement): void {
+  const buttons = [
+    { label: 'Bold', run: () => editor.commands.toggleBold(), active: () => editor.isActive('bold') },
+    {
+      label: 'H2',
+      run: () => editor.commands.setHeading(2),
+      active: () => editor.isActive('heading', { level: 2 }),
+    },
+    {
+      label: 'Tasks',
+      run: () => editor.commands.toggleTaskList(),
+      active: () => editor.isActive('taskList'),
+    },
+  ].map((button) => {
+    const element = document.createElement('button')
+    element.type = 'button'
+    element.textContent = button.label
+    element.addEventListener('click', () => button.run())
+    container.append(element)
+    return { ...button, element }
+  })
+
+  const refresh = () => {
+    for (const button of buttons) button.element.setAttribute('aria-pressed', String(button.active()))
+  }
+  editor.on('selectionChange', refresh)
+  refresh()
+}
 ```
 
-Commands return `true` when they applied, so you can also use them to disable buttons that
-would do nothing. Commands focus the editor again after they run, so clicking a toolbar button
-does not lose the cursor.
+Use `editor.isActive(...)` for pressed states. Do not call a command just to find out whether
+it would apply: calling it applies it. Commands return `false` when they did nothing (for
+example `setLink` with an unsafe URL), which you can use to show feedback after a click.
+Commands focus the editor again after they run, so clicking a toolbar button does not lose the
+cursor.
 
 While the editor is read-only or a stream is running, commands do nothing and return `false`.
 
