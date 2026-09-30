@@ -285,7 +285,9 @@ describe('stream lifecycle', () => {
     const controller = new AbortController()
     controller.abort()
     const editor = make('kept')
-    expect(await editor.streamFrom(['x'] as unknown as AsyncIterable<string>, { signal: controller.signal })).toBe('kept')
+    expect(
+      await editor.streamFrom(['x'] as unknown as AsyncIterable<string>, { signal: controller.signal }),
+    ).toBe('kept')
     expect(editor.isStreaming()).toBe(false)
   })
 })
