@@ -215,19 +215,23 @@ export function createStream(view: EditorView, options: StreamOptions, hooks: St
     if (done) return
     cancelFrame()
     done = true
-    // Put the document back as it was, without recording history...
-    const restore = view.state.tr
-      .setMeta(STREAM_META, true)
-      .setMeta('addToHistory', false)
-      .setMeta(caretKey, null)
-    region.restore(restore)
-    view.dispatch(restore)
-    // ...then insert the final result as a single, undoable edit.
-    const final = view.state.tr
-    const markdown = heal ? healMarkdown(buffer) : buffer
-    if (markdown) region.apply(final, markdown, false)
-    view.dispatch(final.scrollIntoView())
-    hooks.onDone()
+    try {
+      // Put the document back as it was, without recording history...
+      const restore = view.state.tr
+        .setMeta(STREAM_META, true)
+        .setMeta('addToHistory', false)
+        .setMeta(caretKey, null)
+      region.restore(restore)
+      view.dispatch(restore)
+      // ...then insert the final result as a single, undoable edit.
+      const final = view.state.tr
+      const markdown = heal ? healMarkdown(buffer) : buffer
+      if (markdown) region.apply(final, markdown, false)
+      view.dispatch(final.scrollIntoView())
+    } finally {
+      // Always leave the streaming state, even if the document was changed under the stream.
+      hooks.onDone()
+    }
   }
 
   return {

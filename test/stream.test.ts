@@ -195,3 +195,97 @@ describe('streamFrom', () => {
     expect(editor.isStreaming()).toBe(false)
   })
 })
+
+describe('stream lifecycle', () => {
+  it('ignores commands while streaming and still ends cleanly', () => {
+    const editor = make('Before after')
+    cursorAfter(editor.view, 'Before ')
+    const writer = editor.stream({ at: 'cursor' })
+    writer.write('**x** ')
+    writer.flush()
+    expect(editor.commands.undo()).toBe(false)
+    expect(editor.commands.toggleBold()).toBe(false)
+    expect(writer.end()).toBe('Before **x** after')
+    expect(editor.isStreaming()).toBe(false)
+    expect(editor.view.editable).toBe(true)
+  })
+
+  it('leaves the streaming state even when finishing throws', () => {
+    const editor = make('abc')
+    const writer = editor.stream()
+    writer.write('x')
+    writer.flush()
+    editor.view.dispatch(editor.view.state.tr.delete(0, editor.view.state.doc.content.size))
+    try {
+      writer.end()
+    } catch {
+      // the document was changed under the stream on purpose
+    }
+    expect(editor.isStreaming()).toBe(false)
+    expect(editor.view.editable).toBe(true)
+  })
+
+  it('reports a pending edit before streaming and not during it', () => {
+    vi.useFakeTimers()
+    try {
+      const onChange = vi.fn()
+      const editor = make('', { onChange, changeDelay: 200 })
+      editor.view.dispatch(editor.view.state.tr.insertText('a', 1))
+      expect(onChange).not.toHaveBeenCalled()
+      const writer = editor.stream()
+      expect(onChange).toHaveBeenCalledTimes(1)
+      expect(onChange).toHaveBeenLastCalledWith('a')
+      writer.write('\n\n**partial')
+      writer.flush()
+      vi.advanceTimersByTime(250)
+      expect(onChange).toHaveBeenCalledTimes(1)
+      writer.write('**')
+      writer.end()
+      vi.advanceTimersByTime(250)
+      expect(onChange).toHaveBeenCalledTimes(2)
+      expect(onChange).toHaveBeenLastCalledWith('a\n\n**partial**')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('streamFrom aborts promptly when the source stalls', async () => {
+    const controller = new AbortController()
+    async function* stalled() {
+      yield 'Hello **wor'
+      await new Promise(() => {})
+    }
+    const editor = make()
+    const result = editor.streamFrom(stalled(), { signal: controller.signal })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    controller.abort()
+    expect(await result).toBe('Hello **wor**')
+    expect(editor.isStreaming()).toBe(false)
+  })
+
+  it('streamFrom cancels a web stream on abort', async () => {
+    const controller = new AbortController()
+    const cancel = vi.fn()
+    const body = new ReadableStream<string>({
+      start(c) {
+        c.enqueue('Hi')
+      },
+      cancel,
+    })
+    const editor = make()
+    const result = editor.streamFrom(body, { signal: controller.signal })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    controller.abort()
+    expect(await result).toBe('Hi')
+    expect(cancel).toHaveBeenCalled()
+    expect(editor.isStreaming()).toBe(false)
+  })
+
+  it('streamFrom with an already aborted signal streams nothing', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const editor = make('kept')
+    expect(await editor.streamFrom(['x'] as unknown as AsyncIterable<string>, { signal: controller.signal })).toBe('kept')
+    expect(editor.isStreaming()).toBe(false)
+  })
+})

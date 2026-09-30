@@ -122,6 +122,8 @@ export interface Editor {
   destroy(): void
 }
 
+const ABORTED = Symbol('aborted')
+
 /** Mounts a markdown editor into `options.element`. */
 export function createEditor(options: EditorOptions): Editor {
   const radio = options.extensions?.radio ?? false
@@ -243,6 +245,8 @@ export function createEditor(options: EditorOptions): Editor {
   }
 
   const stream = (streamOptions: StreamOptions = {}): StreamWriter => {
+    // Report a pending user edit first, so it is not mixed with streamed content.
+    flushChange()
     active?.end()
     const writer = createStream(view, streamOptions, {
       parse,
@@ -260,12 +264,14 @@ export function createEditor(options: EditorOptions): Editor {
     return writer
   }
 
-  async function* chunks(source: TextSource): AsyncGenerator<string> {
+  async function* chunks(source: TextSource, stop: { cancel?: () => void }): AsyncGenerator<string> {
     const decoder = new TextDecoder()
     const text = (chunk: string | Uint8Array) =>
       typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true })
     if ('getReader' in source) {
       const reader = source.getReader()
+      // Cancelling also ends a read that is waiting on a stalled source.
+      stop.cancel = () => void reader.cancel().catch(() => {})
       try {
         for (;;) {
           const { done, value } = await reader.read()
@@ -273,7 +279,7 @@ export function createEditor(options: EditorOptions): Editor {
           yield text(value)
         }
       } finally {
-        reader.releaseLock()
+        stop.cancel()
       }
     } else {
       for await (const chunk of source) yield text(chunk)
@@ -302,18 +308,36 @@ export function createEditor(options: EditorOptions): Editor {
     stream,
     async streamFrom(source, streamOptions = {}) {
       const { signal, ...rest } = streamOptions
+      if (signal?.aborted) return getMarkdown()
       const writer = stream(rest)
+      let onAbort = (): void => {}
+      const aborted = new Promise<typeof ABORTED>((resolve) => {
+        onAbort = () => {
+          writer.abort()
+          stop.cancel?.()
+          resolve(ABORTED)
+        }
+        signal?.addEventListener('abort', onAbort, { once: true })
+      })
+      const stop: { cancel?: () => void } = {}
+      const iterator = chunks(source, stop)
       try {
-        for await (const chunk of chunks(source)) {
-          if (signal?.aborted || writer.done) break
-          writer.write(chunk)
+        for (;;) {
+          const next = await Promise.race([iterator.next(), aborted])
+          if (next === ABORTED || next.done || writer.done) break
+          writer.write(next.value)
         }
       } catch (error) {
         writer.abort()
         throw error
+      } finally {
+        signal?.removeEventListener('abort', onAbort)
+        // Stops the source. Not awaited: a stalled source may never settle.
+        stop.cancel?.()
+        void iterator.return(undefined).catch(() => {})
       }
       if (writer.done) return getMarkdown()
-      return signal?.aborted ? writer.abort() : writer.end()
+      return writer.end()
     },
     isStreaming: () => active !== null,
     on(event, handler) {

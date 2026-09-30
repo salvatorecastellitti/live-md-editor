@@ -231,6 +231,8 @@ export interface Commands {
 /** Binds the command set to a view. Used by `createEditor`. */
 export function createCommands(view: EditorView): Commands {
   const run = (command: Command): boolean => {
+    // Read-only (including while a stream owns the document): never edit.
+    if (!view.editable) return false
     const applied = command(view.state, view.dispatch, view)
     if (applied) view.focus()
     return applied
