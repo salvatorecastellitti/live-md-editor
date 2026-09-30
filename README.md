@@ -59,8 +59,20 @@ export function NoteEditor({ initial }: { initial: string }) {
 ## Streaming an AI answer
 
 ```tsx
+import { LiveMarkdownEditor } from 'live-md-editor/react'
+import { highlight } from 'live-md-editor/highlight'
+
 // Pass the growing text and a streaming flag, as AI SDKs give them to you.
-<LiveMarkdownEditor value={answer} streaming={isStreaming} editable={!isStreaming} highlight={highlight} />
+export function Answer({ answer, isStreaming }: { answer: string; isStreaming: boolean }) {
+  return (
+    <LiveMarkdownEditor
+      value={answer}
+      streaming={isStreaming}
+      editable={!isStreaming}
+      highlight={highlight}
+    />
+  )
+}
 ```
 
 ```ts
