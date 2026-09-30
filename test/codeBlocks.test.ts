@@ -76,6 +76,29 @@ describe('highlight option', () => {
   })
 })
 
+describe('robustness', () => {
+  it('keeps the code plain when the highlighter throws synchronously', () => {
+    const editor = make('```js\nlet a\n```', {
+      highlight: () => {
+        throw new Error('unknown language')
+      },
+    })
+    expect(editor.view.dom.querySelector('.hljs-keyword')).toBeNull()
+    type(editor.view, '!')
+    expect(editor.getMarkdown()).toContain('let a')
+  })
+
+  it('drops highlight and copy decorations when a code block becomes a paragraph', () => {
+    const editor = make('```js\nlet a\n```', { highlight: letHighlighter })
+    expect(editor.view.dom.querySelector('.hljs-keyword')).not.toBeNull()
+    const { state } = editor.view
+    editor.view.dispatch(state.tr.setBlockType(1, 1, state.schema.nodes.paragraph!))
+    expect(editor.view.dom.querySelector('pre')).toBeNull()
+    expect(editor.view.dom.querySelector('.hljs-keyword')).toBeNull()
+    expect(editor.view.dom.querySelector('button.lme-copy')).toBeNull()
+  })
+})
+
 describe('copy button', () => {
   afterEach(() => {
     vi.restoreAllMocks()

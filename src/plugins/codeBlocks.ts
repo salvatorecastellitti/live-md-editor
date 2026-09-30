@@ -45,8 +45,8 @@ export function codeBlockPlugin(
         if (!tr.docChanged) return set
         let next = set.map(tr.mapping, tr.doc)
         const seen = new Set<number>()
-        for (const { from, to } of changedRanges(tr)) {
-          tr.doc.nodesBetween(Math.max(0, from - 1), Math.min(tr.doc.content.size, to + 1), (node, pos) => {
+        const rebuild = (from: number, to: number): void => {
+          tr.doc.nodesBetween(Math.max(0, from), Math.min(tr.doc.content.size, to), (node, pos) => {
             if (node.type.name !== 'code_block') return true
             if (!seen.has(pos)) {
               seen.add(pos)
@@ -55,6 +55,17 @@ export function codeBlockPlugin(
             return false
           })
         }
+        const ranges = changedRanges(tr)
+        // Drop whatever decorated the changed ranges (it may no longer be a code block),
+        // and rebuild any code block those decorations belonged to.
+        const spans: { from: number; to: number }[] = []
+        for (const { from, to } of ranges) {
+          const stale = next.find(from - 1, to + 1)
+          spans.push(...stale.map((decoration) => ({ from: decoration.from, to: decoration.to })))
+          next = next.remove(stale) // note: remove() empties the array it is given
+        }
+        for (const { from, to } of ranges) rebuild(from - 1, to + 1)
+        for (const { from, to } of spans) rebuild(from, to)
         return next
       },
     },

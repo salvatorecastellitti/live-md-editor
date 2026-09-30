@@ -39,7 +39,13 @@ export function highlightPlugin(highlighter: Highlighter): Plugin<DecorationSet>
     const id = `${language}\u0000${code}`
     if (cache.has(id)) return cache.get(id)!
     if (pending.has(id)) return null
-    const result = highlighter(code, language)
+    let result: ReturnType<Highlighter>
+    try {
+      result = highlighter(code, language)
+    } catch {
+      store(id, null)
+      return null
+    }
     if (!(result instanceof Promise)) {
       store(id, result)
       return result
