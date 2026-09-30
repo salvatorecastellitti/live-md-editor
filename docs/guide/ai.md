@@ -61,8 +61,13 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const client = new Anthropic()
 
+// This route spends your API credits for anyone who can reach it. Protect it
+// (authentication, rate limiting) before deploying.
 export async function POST(request: Request) {
-  const { prompt } = (await request.json()) as { prompt: string }
+  const { prompt } = (await request.json().catch(() => ({}))) as { prompt?: unknown }
+  if (typeof prompt !== 'string' || !prompt.trim()) {
+    return new Response('Expected { prompt: string }', { status: 400 })
+  }
   const stream = client.beta.messages.stream({
     model: 'claude-opus-5-5',
     max_tokens: 64000,
