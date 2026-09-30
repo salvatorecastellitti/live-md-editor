@@ -87,9 +87,11 @@ function toggleList(listType: NodeType, check: CheckKind): Command {
               const node = $pos.node(depth)
               if (!isList(node.type)) continue
               let pos = $pos.start(depth)
+              const { from, to } = tr.selection
               node.forEach((item) => {
-                tr.setNodeMarkup(pos, undefined, { check, checked: false })
-                pos += item.nodeSize
+                const end = pos + item.nodeSize
+                if (pos <= to && end >= from) tr.setNodeMarkup(pos, undefined, { check, checked: false })
+                pos = end
               })
               break
             }

@@ -62,6 +62,17 @@ describe('commands', () => {
     expect(markdownOf(view)).toBe('text')
   })
 
+  it('keeps neighbouring list items intact when wrapping in a task list', () => {
+    const checked = setup('- [x] done\n\ntext')
+    cursorAfter(checked.view, 'te')
+    checked.commands.toggleTaskList()
+    expect(markdownOf(checked.view)).toBe('- [x] done\n\n\n- [ ] text')
+    const plain = setup('- plain\n\ntext')
+    cursorAfter(plain.view, 'te')
+    plain.commands.toggleTaskList()
+    expect(markdownOf(plain.view)).toBe('- plain\n\n\n- [ ] text')
+  })
+
   it('toggle blockquote', () => {
     const { view, commands, active } = setup('text')
     cursorAfter(view, 'te')
