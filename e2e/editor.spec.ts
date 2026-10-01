@@ -48,9 +48,12 @@ test('pasting markdown text inserts formatted content', async ({ page }) => {
   await editor(page).evaluate((element) => {
     const data = new DataTransfer()
     data.setData('text/plain', '# Pasted\n\n- [x] done')
-    element.dispatchEvent(
-      new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
-    )
+    const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true })
+    // Firefox ignores clipboardData passed to the ClipboardEvent constructor
+    // (it creates a new, empty DataTransfer), so attach the data directly.
+    // A real user paste always carries the clipboard contents.
+    Object.defineProperty(event, 'clipboardData', { value: data })
+    element.dispatchEvent(event)
   })
   await expect(editor(page).locator('h1')).toHaveText('Pasted')
   await expect(markdown(page)).toHaveText('# Pasted\n\n- [x] done')
@@ -69,6 +72,18 @@ test('read-only mode opens links in a new tab without leaving the page', async (
   const popup = page.waitForEvent('popup')
   await editor(page).locator('a').click()
   expect((await popup).url()).toBe(target)
+  expect(page.url()).toBe(url)
+})
+
+test('read-only links open from the keyboard too', async ({ page, browserName }) => {
+  // Safari only moves focus to links with Tab when the user enables it; focus() still works.
+  const target = 'http://localhost:4173/?value=opened'
+  await page.goto(`/?${new URLSearchParams({ value: `[docs](${target})`, readonly: '1' })}`)
+  const url = page.url()
+  await editor(page).locator('a').focus()
+  const popup = page.waitForEvent('popup')
+  await page.keyboard.press('Enter')
+  expect((await popup).url(), browserName).toBe(target)
   expect(page.url()).toBe(url)
 })
 

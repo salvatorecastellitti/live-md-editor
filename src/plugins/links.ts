@@ -12,29 +12,36 @@ function linkAt(view: EditorView, pos: number): string | undefined {
 
 /**
  * Cmd/Ctrl + click on a link opens it in a new tab; in an editable editor a
- * plain click just places the cursor. In a read-only editor a plain click
- * opens the link in a new tab too, and never navigates the host page.
+ * plain click just places the cursor. In a read-only editor any activation
+ * (mouse click, Enter on a focused link, a screen reader's activate action)
+ * opens the link in a new tab, and never navigates the host page.
  */
 export function linkClicks(): Plugin {
   return new Plugin({
     props: {
       handleClick(view, pos, event) {
-        if (view.editable && !(event.metaKey || event.ctrlKey)) return false
         const href = linkAt(view, pos)
         if (!href) return false
-        if (!view.editable) event.preventDefault()
-        if (!isSafeUrl(href)) return !view.editable
+        // Read-only links are opened by the click handler below, which also
+        // sees keyboard activation; here we only stop ProseMirror's handling.
+        if (!view.editable) {
+          event.preventDefault()
+          return true
+        }
+        if (!(event.metaKey || event.ctrlKey) || !isSafeUrl(href)) return false
         window.open(href, '_blank', 'noopener,noreferrer')
         return true
       },
       handleDOMEvents: {
-        // The browser follows a link on `click`, after ProseMirror handled
-        // the mouseup above. Read-only links are opened by handleClick.
         click(view, event) {
-          if (!view.editable && (event.target as Element | null)?.closest?.('a[href]')) {
-            event.preventDefault()
-          }
-          return false
+          if (view.editable) return false
+          const anchor = (event.target as Element | null)?.closest?.('a[href]')
+          if (!anchor) return false
+          // The browser would follow the link (and leave the host app) on click.
+          event.preventDefault()
+          const href = anchor.getAttribute('href') ?? ''
+          if (isSafeUrl(href)) window.open(href, '_blank', 'noopener,noreferrer')
+          return true
         },
       },
     },
