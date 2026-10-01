@@ -72,6 +72,18 @@ test('read-only mode opens links in a new tab without leaving the page', async (
   expect(page.url()).toBe(url)
 })
 
+test('read-only links open from the keyboard too', async ({ page, browserName }) => {
+  // Safari only moves focus to links with Tab when the user enables it; focus() still works.
+  const target = 'http://localhost:4173/?value=opened'
+  await page.goto(`/?${new URLSearchParams({ value: `[docs](${target})`, readonly: '1' })}`)
+  const url = page.url()
+  await editor(page).locator('a').focus()
+  const popup = page.waitForEvent('popup')
+  await page.keyboard.press('Enter')
+  expect((await popup).url(), browserName).toBe(target)
+  expect(page.url()).toBe(url)
+})
+
 test('default theme styles headings, placeholder and code language', async ({ page }) => {
   await page.goto(`/?${new URLSearchParams({ placeholder: 'Write something' })}`)
   const before = await editor(page)

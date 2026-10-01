@@ -48,17 +48,50 @@ describe('link clicks', () => {
     expect(open).not.toHaveBeenCalled()
   })
 
-  it('read-only: a plain click opens a safe link in a new tab', () => {
+  it('read-only: the mouseup handler blocks navigation but leaves opening to the click event', () => {
     const { handled, open, prevented } = clickLink('https://x.com', {}, false)
     expect(handled).toBe(true)
     expect(prevented).toBe(true)
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  /** Dispatches a DOM click on the rendered link, as a mouse, Enter key or screen reader does. */
+  const activateLink = (markdown: string, init: MouseEventInit = {}) => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const view = createView(markdown, [linkClicks()], { editable: false })
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, ...init })
+    view.dom.querySelector('a')!.dispatchEvent(event)
+    return { open, prevented: event.defaultPrevented }
+  }
+
+  it('read-only: activating a link opens it once in a new tab', () => {
+    const { open, prevented } = activateLink('[link](https://x.com)')
+    expect(prevented).toBe(true)
+    expect(open).toHaveBeenCalledOnce()
     expect(open).toHaveBeenCalledWith('https://x.com', '_blank', 'noopener,noreferrer')
   })
 
-  it('read-only: a plain click on an unsafe link neither opens nor navigates', () => {
-    const { handled, open, prevented } = clickLink('javascript:alert(1)', {}, false)
-    expect(handled).toBe(true)
-    expect(prevented).toBe(true)
+  it('read-only: keyboard activation (a click with detail 0) opens the link too', () => {
+    const { open } = activateLink('[link](https://x.com)', { detail: 0 })
+    expect(open).toHaveBeenCalledWith('https://x.com', '_blank', 'noopener,noreferrer')
+  })
+
+  it('read-only: an unsafe link neither opens nor navigates', () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const view = createView('[x](https://x.com)', [linkClicks()], { editable: false })
+    // The parser drops unsafe links, so the unsafe href is put on the rendered anchor directly.
+    const anchor = view.dom.querySelector('a')!
+    anchor.setAttribute('href', 'javascript:alert(1)')
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true })
+    anchor.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('editable: a DOM click on a link does not open it (a plain click places the cursor)', () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const view = createView('[link](https://x.com)', [linkClicks()])
+    view.dom.querySelector('a')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
     expect(open).not.toHaveBeenCalled()
   })
 })
