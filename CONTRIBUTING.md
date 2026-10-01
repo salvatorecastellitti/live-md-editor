@@ -45,3 +45,17 @@ pnpm dev          # test page at http://localhost:4173
 Please include the markdown that triggers the problem, what you expected, what happened, and
 your browser. The [playground](https://salvatorecastellitti.github.io/live-md-editor/playground)
 is a quick way to reproduce.
+
+## Releasing (maintainers)
+
+Releases are published manually from `main`:
+
+```bash
+git checkout main && git pull
+pnpm install --frozen-lockfile
+pnpm check
+pnpm changeset version   # bumps the version and writes CHANGELOG.md from the changesets
+git add -A && git commit -m "chore: release vX.Y.Z"
+pnpm release             # builds, publishes to npm (asks for your 2FA code) and tags the release
+git push --follow-tags
+```
