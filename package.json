@@ -1,6 +1,6 @@
 {
   "name": "live-md-editor",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Lightweight WYSIWYG markdown editor for any framework: edit formatted text, get plain markdown back.",
   "keywords": [
     "markdown",
